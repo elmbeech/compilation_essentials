@@ -18,33 +18,43 @@ class Compiler:
     def rco_exp(self, e: expr, need_atomic : bool) -> Tuple[expr, Temporaries]:
         print('RCO_EXP INPUT expr need_atomic :', e, need_atomic)
         match e:
-            case Constant(value):  # Lint leaf
+            case Constant(value):  # Lint; always leaf
                 constant = Constant(value)
                 print('RCO_EXP OUTPUT:', constant, [])
                 return (constant, []) # expression and enviroment (expr, [(Name, (expr, [(Name, expr)]))])
 
-            case Call(Name('input_int'), []):  # Lint leaf
-                #if need_atomic:
-                #else:
-                #return (e, [])
-                pass
+            case Call(Name('input_int'), []):  # Lint; maybe complex
+                inputint = Call(Name('input_int'), [])
+                if need_atomic:
+                    tmp = Name(generate_name('tmp'))
+                    return (tmp, [(tmp, inputint)])  # packing all the temps outside and keep the atoms inside.
+                return (inputint, [])
 
-            case UnaryOp(USub(), operand):  # Lint complex: operator, operand
-                #tmp = Name(generate_name('tmp')
-                #return neg64(interp_exp(operand)
-                pass
+            case UnaryOp(USub(), operand):  # Lint; maybe complex; operator, operand
+                atm, l_tmp = self.rco_exp(operand, True)
+                neg = UnaryOp(USub(), atm)
+                if need_atomic:
+                    tmp = Name(generate_name('tmp'))
+                    return (tmp, l_tmp + [(tmp, neg)])
+                return (neg, l_tmp)
 
-            case BinOp(left, Add(), right):  # Lint comple: expr, operator, expr
-                #l = interp_exp(left)
-                #r = interp_exp(right)
-                #return add64(l, r)
-                pass
+            case BinOp(left, Add(), right):  # Lint; maybe complex; expr, operator, expr
+                atm1, l_tmp1 = self.rco_exp(left, True)
+                atm2, l_tmp2 = self.rco_exp(right, True)
+                add = BinOp(atm1, Add(), atm2)
+                if need_atomic:
+                    tmp = Name(generate_name('tmp'))
+                    return (tmp, l_tmp1 + l_tmp2 + [(tmp, add)])
+                return (add, l_tmp1 + l_tmp2)
 
-            case BinOp(left, Sub(), right):  # Lint complex: expr, operator, expr
-                #l = interp_exp(left)
-                #r = interp_exp(right)
-                #return sub64(l, r)
-                pass
+            case BinOp(left, Sub(), right):  # Lint; maybe complex; expr, operator, expr
+                atm1, l_tmp1 = self.rco_exp(left, True)
+                atm2, l_tmp2 = self.rco_exp(rigt, True)
+                add = BinOp(atm1, Sub(), atm2)
+                if need_atomic:
+                    tmp = Name(generate_name('tmp'))
+                    return (tmp, l_tmp1 + l_tmp2 + [(tmp, sub)])
+                return (sub, l_tmp1 + l_tmp2)
 
             case Name(var):  # Lvar
                 name = Name(var)
@@ -57,15 +67,15 @@ class Compiler:
         print('RCO_STMT INPUT stmt:', ast.dump(s))
         match s:
             case Expr(Call(Name('print'), [exp])):  # Lint
-                (atm, l_tmp) =  self.rco_exp(exp, True)
-                l_stmt = [Expr(Call(Name('print'), [atm]))]
-                #l_stmt = [Assign([varc], expc) for varc, expc in l_tmp] + [Expr(Call(Name('print'), [atm]))]
+                atm, l_tmp =  self.rco_exp(exp, True)
+                #l_stmt = [Expr(Call(Name('print'), [atm]))]
+                l_stmt = [Assign([varc], expc) for varc, expc in l_tmp] + [Expr(Call(Name('print'), [atm]))]
                 print('RCO_STMT OUTPUT print l_stmt:', l_stmt)
                 return l_stmt
 
             case Expr(exp):  # Lint
-                (atm, l_tmp) =  self.rco_exp(exp, False)  # output: expression and enviroment
-                l_stmt = [Assign([atm])]
+                atm, l_tmp =  self.rco_exp(exp, False)  # output: expression and enviroment
+                l_stmt = [Assign([varc], expc) for varc, expc in l_tmp]
                 print('RCO_STMT OUTPUT Expr l_stmt:', l_stmt)
                 return l_stmt
 
@@ -95,7 +105,7 @@ class Compiler:
     # Select Instructions: Lvar mon -> x86var
     ############################################################################
 
-    def select_arg(self, e: expr) -> arg:  # arg non terminal  
+    def select_arg(self, e: expr) -> arg:  # arg non terminal
         print('SELECT_ARG INPUT:', e)
         match e:
             case Constant(var):  # Lint atom
@@ -139,7 +149,7 @@ class Compiler:
                 #l_instrct.append(
                 #instct = Instr('movq', [arg1, Reg('rax')])
                 pass
-                  
+
             case BinOp(left, Sub(), right):  # Lint expr: expr, operator, expr
                 pass
 
