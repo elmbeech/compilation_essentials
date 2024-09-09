@@ -4,8 +4,10 @@ from sys import platform
 import ast
 from ast import parse
 
-sys.path.append('../python-student-support-code')
-sys.path.append('../python-student-support-code/interp_x86')
+#sys.path.append('../python-student-support-code')
+#sys.path.append('../python-student-support-code/interp_x86')
+sys.path.append('../compilation_essentials')
+sys.path.append('../compilation_essentials/interp_x86')
 
 import compiler
 from interp_Lvar import interp_Lvar

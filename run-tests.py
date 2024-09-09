@@ -1,8 +1,10 @@
 import os
 import sys
 
-sys.path.append('../python-student-support-code')
-sys.path.append('../python-student-support-code/interp_x86')
+#sys.path.append('../python-student-support-code')
+#sys.path.append('../python-student-support-code/interp_x86')
+sys.path.append('../compilation_essentials')
+sys.path.append('../compilation_essentials/interp_x86')
 
 import compiler
 import interp_Lvar
@@ -28,15 +30,20 @@ interp_dict = {
     'patch_instructions': interp_x86,
 }
 
-if True:
-    run_tests('var', compiler, 'var',
-              typecheck_dict,
-              interp_dict)
+if False:
+    run_tests(
+        lang = 'var', 
+        compiler = compiler, 
+        compiler_name = 'var',      
+        type_check_dict = typecheck_dict,
+        interp_dict = interp_dict,
+    )
 else:
-    run_one_test(os.getcwd() + '/tests/var/zero.py',
-                 'var',
-                 compiler,
-                 'var',
-                 typecheck_dict,
-                 interp_dict)
-
+    run_one_test(
+        test = os.getcwd() + '/tests/var/zero.py',
+        lang = 'var',
+        compiler = compiler,
+        compiler_name = 'var',
+        type_check_dict = typecheck_dict,
+        interp_dict = interp_dict,
+    )
