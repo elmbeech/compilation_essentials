@@ -1,7 +1,11 @@
 import ast
 from ast import *  # Add, BinOP, Call, Constant, expr, Name, Sub, UnaryOP, USub
+# https://docs.python.org/3/library/language.html
+# https://docs.python.org/3/library/ast.html
+# https://greentreesnakes.readthedocs.io/en/latest/
+
 from utils import *  # generate_name, input_int, label_name
-from x86_ast import *  # X86Program
+from x86_ast import *  # arg, Callq, Deref, Immediate, Instr, Jump, Reg, Retq, Variable, X86Program
 import os
 from typing import List, Tuple, Set, Dict
 
@@ -92,9 +96,12 @@ class Compiler:
         print('RCO INPUT Module:', ast.dump(p))
         match p:
             case Module(body):  # Lvar
-                l_stmt = [self.rco_stmt(stmt) for stmt in body]
-                #module = Module(l_stmt)
-                module = Module(sum(l_stmt, []))  # bue: what is this sum doing?!
+                l_stmt = []
+                for stmt in body:
+                    l_stmt.extend(self.rco_stmt(stmt))
+                module = Module(l_stmt)
+                #ll_stmt = [self.rco_stmt(stmt) for stmt in body]
+                #module = Module(sum(ll_stmt, []))  # bue: what is this sum doing?!
                 print('RCO OUTPUT Module:', ast.dump(module))
                 return module
 
@@ -105,54 +112,71 @@ class Compiler:
     # Select Instructions: Lvar mon -> x86var
     ############################################################################
 
-    def select_arg(self, e: expr) -> arg:  # arg non terminal
+    def select_arg(self, e: expr) -> arg:  # arg terminal
+        # work on atoms
         print('SELECT_ARG INPUT:', e)
         match e:
             case Constant(var):  # Lint atom
-                immediate = Immediate(var)
-                return immediate
+                arg_var = Immediate(var)
+                return arg_var
 
-            case Name(var):  # Lvar atom (arg non terminal)
-                name = Name(var)
-                return name
-
-            case Call(Name('input_int'), []):  # Lint  expr
-                pass
+            case Name(var):  # Lvar atom
+                arg_var = Variable(var)
+                return arg_var
 
             case _:
-                 raise Exception('Error: Compiler.select_arg case not yet implemented.')
+                raise Exception('Error: Compiler.select_arg case not yet implemented.')
 
-    def select_stmt(self, s: stmt) -> List[instr]:  # for stmt non terminal
+    def select_stmt(self, s: stmt) -> List[instr]:  # stmt non terminal
+        # workhorse
         print('SELECT_STMT INPUT:', s)
         match s:
-            case Expr(Call(Name('print'), [exp])):  # Lint stmt
-                arg1 = self.select_arg(exp)
-                #print("arg1",arg1)
-                fin = Instr('movq',[arg1,Reg('rdi')])
-                res = Callq(label_name('print_int'),arg1)
+            case Assign([Name(var)], exp):  # Lvar expr (atm)
+                arg = self.select_arg(exp)
                 l_instr = []
+                l_instr.append( Instr('movq', [arg, Variable(var)]) )
                 return l_instr
 
-            case Expr(exp):  # Lint stmt
-                l_instr = [self.select_arg(exp)]
+            case Call(Name('input_int'), []):  # Lint  expr
+                l_instr = []
+                l_instr.append( Callq(label_name('input_int'), input_int) )
+                raise l_instr
+
+            case Assign([Name(var)], UnaryOp(USub(), operand)):  # Lint expr : exproperator, operand
+                arg_var = self.select_arg(var)
+                arg_operand = self.select_arg(operand)
+                l_instr = []
+                l_instr.append( Instr('movq', [arg_var, '%rax']) )
+                l_instr.append( Instr('negq', [operand]) )
+                l_instr.append( Instr('movq', ['%rax', arg_var]) )
                 return l_instr
 
-            case Assign([Name(var)], exp):  # Lvar stmt
-                pass
+            case Assign([Name(var)], BinOp(left, Add(), right)):  # Lint expr: expr, operator, expr
+                arg_var = self.select_arg(var)
+                arg_left = self.select_arg(left)
+                arg_right = self.select_arg(right)
+                l_instr = []
+                l_instr.append( Instr('movq', [arg_left, '%rax']) )
+                l_instr.append( Instr('addq', [arg_right, '%rax']) )
+                l_instr.append( Instr('movq', ['%rax', arg_var]) )
+                return l_instr
 
+            case Assign([Name(var)], BinOp(left, Sub(), right)):  # Lint expr: expr, operator, expr
+                arg_var = self.select_arg(var)
+                arg_left = self.select_arg(left)
+                arg_right = self.select_arg(right)
+                l_instr = []
+                l_instr.append( Instr('movq', [arg_left, '%rax']) )
+                l_instr.append( Instr('subq', [arg_right, '%rax']) )
+                l_instr.append( Instr('movq', ['%rax', arg_var]) )
+                return l_instr
 
-            case UnaryOp(USub(), operand):  # Lint expr : exproperator, operand
-                pass
-
-            case BinOp(left, Add(), right):  # Lint expr: expr, operator, expr
-                #l_instrct = []
-                #l_instrct.append(
-                #instct = Instr('movq', [arg1, Reg('rax')])
-                pass
-
-            case BinOp(left, Sub(), right):  # Lint expr: expr, operator, expr
-                pass
-
+            case Expr(Call(Name('print'), [exp])):  # Lint stmt
+                arg_exp = self.select_arg(exp)
+                print('BUE', arg_exp)
+                l_instr = []
+                l_instr.append( Callq(label_name('print_int'), arg_exp) )
+                return l_instr
             case _:
                  raise Exception('Error: Compiler.select_stmt case not yet implemented.')
 
