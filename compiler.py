@@ -154,38 +154,38 @@ class Compiler:
                 arg_var = self.select_arg(var)
                 arg_operand = self.select_arg(operand)
                 l_instr = []
-                l_instr.append( Instr('movq', [arg_var, '%rax']) )
+                l_instr.append( Instr('movq', [arg_var, Reg('rax')]) )
                 l_instr.append( Instr('negq', [operand]) )
-                l_instr.append( Instr('movq', ['%rax', arg_var]) )
+                l_instr.append( Instr('movq', [Reg('rax'), arg_var]) )
                 print('SELECT_STMT OUTPUT neg:', l_instr)
                 return l_instr
 
             case Assign([Name(var)], BinOp(left, Add(), right)):  # Lint expr: expr, operator, expr
-                arg_var = self.select_arg(var)
+                arg_var = self.select_arg(Name(var))
                 arg_left = self.select_arg(left)
                 arg_right = self.select_arg(right)
                 l_instr = []
-                l_instr.append( Instr('movq', [arg_left, '%rax']) )
-                l_instr.append( Instr('addq', [arg_right, '%rax']) )
-                l_instr.append( Instr('movq', ['%rax', arg_var]) )
+                l_instr.append( Instr('movq', [arg_left, Reg('rax')]) )
+                l_instr.append( Instr('addq', [arg_right, Reg('rax')]) )
+                l_instr.append( Instr('movq', [Reg('rax'), arg_var]) )
                 print('SELECT_STMT OUTPUT add:', l_instr)
                 return l_instr
 
             case Assign([Name(var)], BinOp(left, Sub(), right)):  # Lint expr: expr, operator, expr
-                arg_var = self.select_arg(var)
+                arg_var = self.select_arg(Name(var))
                 arg_left = self.select_arg(left)
                 arg_right = self.select_arg(right)
                 l_instr = []
-                l_instr.append( Instr('movq', [arg_left, '%rax']) )
-                l_instr.append( Instr('subq', [arg_right, '%rax']) )
-                l_instr.append( Instr('movq', ['%rax', arg_var]) )
+                l_instr.append( Instr('movq', [arg_left, Reg('rax')]) )
+                l_instr.append( Instr('subq', [arg_right, Reg('rax')]) )
+                l_instr.append( Instr('movq', [Reg('rax'), arg_var]) )
                 print('SELECT_STMT OUTPUT sub:', l_instr)
                 return l_instr
 
             case Expr(Call(Name('print'), [exp])):  # Lint stmt
                 arg_exp = self.select_arg(exp)
                 l_instr = []
-                l_instr.append( Instr('movq', [arg_exp, '%rdi']) )
+                l_instr.append( Instr('movq', [arg_exp, Reg('rdi')]) )
                 l_instr.append( Callq(label_name('print_int'), []) )
                 print('SELECT_STMT OUTPUT print:', l_instr)
                 return l_instr
@@ -213,7 +213,12 @@ class Compiler:
             case Module(body):
                 l_instr = [self.select_stmt(stmt) for stmt in body]
                 x86program = X86Program(sum(l_instr, []))
-                print('SELECT_INSTRUCTIONS OUTPUT x86program:', x86program)
+                #x86program = []
+                #for stmt in body:
+                #    instruction = self.select_stmt(stmt)
+                #    x86program.extend(instruction)
+
+                print('SELECT_INSTRUCTIONS OUTPUT x86program:', x86program, type(x86program,))
                 return x86program
 
             case _:
@@ -224,40 +229,105 @@ class Compiler:
     ############################################################################
 
     def assign_homes_arg(self, a: arg, home: Dict[Variable, arg]) -> arg:
-        print('ASSIGN_HOMES_ARG arg home:', a, home)
-        # YOUR CODE HERE
-        pass
+        print('ASSIGN_HOMES_ARG INPUT arg home:', a, home)
+
+        match a:
+            case Variable(arg):
+                if not (Variable(arg) in home.keys()):
+                    self.stack_space -= 8
+                    home.update({Variable(arg): Deref('tbp', self.stack_space)})
+                argument = home[Variable(arg)]
+
+            case _:
+                raise Exception('Error: Compiler.assign_homes_arg case not yet implemented.')
+
+        print('ASSIGN_HOMES_ARG OUTPUT arg:', a, home)
+        return argument
 
     def assign_homes_instr(self, i: instr, home: Dict[Variable, arg]) -> instr:
-        print('ASSIGN_HOMES_INSTR instr home:', i, home)
-        # YOUR CODE HERE
-        pass
+        print('ASSIGN_HOMES_INSTR INPUT instr home:', i, home)
+
+        # Immediate, Reg, Variable: 3**2 = 9 [cases]
+        match i:
+            case Instr(command, [Immediate(arg1), Immediate(arg2)]):  # ii
+                instruction = i
+
+            case Instr(command, [Immediate(arg1), Reg(arg2)]):  # ir
+                instruction = i
+
+            case Instr(command, [Immediate(arg1), Variable(arg2)]):  # iv
+                arg_var2 = self.assign_homes_arg(Variable(arg2), home)
+                instruction = Instr(command, [Immediate(arg1), arg_var2])
+
+            case Instr(command, [Reg(arg1), Immediate(arg2)]):  # ri
+                instruction = i
+
+            case Instr(command, [Reg(arg1), Reg(arg2)]):  # rr
+                instruction = i
+
+            case Instr(command, [Reg(arg1), Variable(arg2)]):  # rv
+                arg_var2 = self.assign_homes_arg(Variable(arg2), home)
+                instruction = Instr(command, [Reg(arg1), arg_var2])
+
+            case Instr(command, [Variable(arg1), Immediate(arg2)]):  # vi
+                arg_var1 = self.assign_homes_arg(Variable(arg1), home)
+                instruction = Instr(command, [arg_var1, Immediate(arg2)])
+
+            case Instr(command, [Variable(arg1), Reg(arg2)]):  # vr
+                arg_var1 = self.assign_homes_arg(Variable(arg1), home)
+                instruction = Instr(command, [arg_var1, Reg(arg2)])
+
+            case Instr(command, [Variable(arg1), Variable(arg2)]):  # vv
+                arg_var1 = self.assign_homes_arg(Variable(arg1), home)
+                arg_var2 = self.assign_homes_arg(Variable(arg2), home)
+                instruction = Instr(command, [arg_var1, arg_var2])
+
+            case Callq('print_int', []):  # other
+                instruction = i
+
+            case _:
+                raise Exception('Error: Compiler.assign_homes_instr case not yet implemented.')
+
+        print('ASSIGN_HOMES_INSTR OUTPUT instr, home:' , instruction, home)
+        return instruction
 
     def assign_homes(self, p: X86Program) -> X86Program:
-        print('ASSIGN_HOMES X86Program:', p)
-        # YOUR CODE HERE
-        pass
+        print('ASSIGN_HOMES INPUT X86Program:', p)
+
+        l_instr = []
+        d_home = {}
+        match p:
+            case X86Program(program):
+                self.stack_space = -8
+                for i in program:
+                    instruction = self.assign_homes_instr(i, d_home)
+                    l_instr.append(instruction)
+                x86program = X86Program(l_instr)
+
+            case _:
+                raise Exception('Error: Compiler.assign_homes case not yet implemented.')
+
+        print('ASSIGN_HOMES OUTPUT X86Program:', x86program)
+        return x86program
 
     ############################################################################
     # Patch Instructions: x86var -> x86int
     ############################################################################
 
     def patch_instr(self, i: instr) -> List[instr]:
-        print('PATCH_INSTR instr:', i)
-        # YOUR CODE HERE
-        pass
+        print('PATCH_INSTR INPUT instr:', i)
+        print('PATCH_INSTR OUTPUT instr:', i)
 
     def patch_instructions(self, p: X86Program) -> X86Program:
-        print('PATCH_INSTRUCTIONS X86Program:', p)
-        # YOUR CODE HERE
-        pass
+        print('PATCH_INSTRUCTIONS INPUT X86Program:', p)
+        print('PATCH_INSTRUCTIONS OUTPUT X86Program:', p)
 
     ############################################################################
     # Prelude & Conclusion: x86int -> x86int
     ############################################################################
 
     def prelude_and_conclusion(self, p: X86Program) -> X86Program:
-        print('PRELUDE_AND_CONCLUSION X86Program:', p)
-        # YOUR CODE HERE
-        pass
+        print('PRELUDE_AND_CONCLUSION INPUT X86Program:', p)
+
+        print('PRELUDE_AND_CONCLUSION OUTPUT X86Program:', p)
 
