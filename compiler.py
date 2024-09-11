@@ -230,6 +230,7 @@ class Compiler:
 
     def assign_homes_arg(self, a: arg, home: Dict[Variable, arg]) -> arg:
         print('ASSIGN_HOMES_ARG INPUT arg home:', a, home)
+        argument = None
 
         match a:
             case Variable(arg):
@@ -246,6 +247,7 @@ class Compiler:
 
     def assign_homes_instr(self, i: instr, home: Dict[Variable, arg]) -> instr:
         print('ASSIGN_HOMES_INSTR INPUT instr home:', i, home)
+        instruction = None
 
         # Immediate, Reg, Variable: 3**2 = 9 [cases]
         match i:
@@ -293,11 +295,12 @@ class Compiler:
 
     def assign_homes(self, p: X86Program) -> X86Program:
         print('ASSIGN_HOMES INPUT X86Program:', p)
+        x86program = None
 
-        l_instr = []
-        d_home = {}
         match p:
             case X86Program(program):
+                l_instr = []
+                d_home = {}
                 self.stack_space = -8
                 for i in program:
                     instruction = self.assign_homes_instr(i, d_home)
@@ -316,11 +319,51 @@ class Compiler:
 
     def patch_instr(self, i: instr) -> List[instr]:
         print('PATCH_INSTR INPUT instr:', i)
-        print('PATCH_INSTR OUTPUT instr:', i)
+        l_instr = []
+
+        match i:
+            case Instr('movq', [Immediate(arg1), Immediate(arg2)]):
+                self.pop = True
+                l_instr.append( Instr('movq', [Immediate(arg1), Reg('rax')]) )
+                l_instr.append( Instr('movq', [Reg('rax'), Immediate(arg2)]) )
+
+            case Instr('subq', [Deref(reg1, arg1), Deref(reg2, arg2)]):
+                self.pop = True
+                l_instr.append( Instr('movq', [Deref(reg1, arg1), Reg('rax')]) )
+                l_instr.append( Instr('movq', [Reg('rax'), Deref(reg2, arg2)]) )
+
+            case Instr('addq', [Deref(reg1, arg1), Deref(reg2,arg2)]):
+                self.pop = True
+                l_instr.append( Instr('movq', [Deref(reg1, arg1), Reg('rax')]) )
+                l_instr.append( Instr('movq', [Reg('rax'), Deref(reg2, arg2)]) )
+
+            case _:
+                l_instr.append(i)
+
+        print('PATCH_INSTR OUTPUT instr:', l_instr)
+        return l_instr
 
     def patch_instructions(self, p: X86Program) -> X86Program:
         print('PATCH_INSTRUCTIONS INPUT X86Program:', p)
-        print('PATCH_INSTRUCTIONS OUTPUT X86Program:', p)
+        x86program = None
+
+        match p:
+            case X86Program(program):
+                l_instr = []
+                self.pop = False
+                for i in program:
+                    instruction = self.patch_instr(i)
+                    if self.pop:
+                        l_instr.pop(-1)
+                        self.pop = False
+                    l_instr.extend(instruction)
+                x86program = X86Program(l_instr)
+
+            case _:
+                raise Exception('Error: Compiler.patch_instructions case not yet implemented.')
+
+        print('PATCH_INSTRUCTIONS OUTPUT X86Program:', x86program)
+        return x86program
 
     ############################################################################
     # Prelude & Conclusion: x86int -> x86int
