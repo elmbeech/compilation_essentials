@@ -15,7 +15,9 @@ from typing import List, Tuple, Set, Dict
 Binding = Tuple[Name, expr]
 Temporaries = List[Binding]
 
+
 # functions
+
 def pe_neg(r):
     '''
     partial evaluator function for lvar fig 1.5 and section2.9.
@@ -27,6 +29,7 @@ def pe_neg(r):
         case _:  # Lint
             return UnaryOp(USub(), r)  # Lint
 
+
 def pe_add(r1, r2):
     '''
     partial evaluator function for lvar fig 1.5 and section 2.9.
@@ -36,6 +39,7 @@ def pe_add(r1, r2):
             return Constant(add64(n1, n2))
 
         case _:  # Lint
+
             return BinOp(r1, Add(), r2)
 
 def pe_sub(r1, r2):
@@ -48,6 +52,7 @@ def pe_sub(r1, r2):
 
         case _:  # Lint
             return BinOp(r1, Sub(), r2)
+
 
 def pe_exp(e):
     '''
@@ -115,6 +120,7 @@ class Compiler:
     # Remove Complex Operands: Lvar -> Lvar mon
     ############################################################################
 
+
     def rco_exp(self, e: expr, need_atomic : bool) -> Tuple[expr, Temporaries]:
         '''
         trip to x86 chapter 1 and 2 section 2.4 remove compex operands.
@@ -168,7 +174,7 @@ class Compiler:
                 print('RCO_EXP OUTPUT sub atom:', (sub, l_tmp1 + l_tmp2))
                 return (sub, l_tmp1 + l_tmp2)
 
-            case Name(var):  # Lvar
+            case Name(var):  # Lvar; always leaf
                 name = Name(var)
                 print('RCO_EXP OUTPUT var name atom:', (name, []))
                 return (name, [])
@@ -176,186 +182,182 @@ class Compiler:
             case _:
                 raise Exception('Error: Compiler.rco_exp case not yet implemented.')
 
+
     def rco_stmt(self, s: stmt) -> List[stmt]:
         '''
-        trip to x86 chapter 1 and 2 section 2.4 remove compex operands.
+        trip to x86 chapter 1 and 2 section 2.4 remove complex operands.
         '''
         print('RCO_STMT INPUT stmt:', ast.dump(s))
+        l_stmt = None
+
         match s:
             case Expr(Call(Name('print'), [exp])):  # Lint
                 newexp, l_tmp =  self.rco_exp(exp, True)
                 l_stmt = [Assign([varc], expc) for varc, expc in l_tmp] + [Expr(Call(Name('print'), [newexp]))]
-                print('RCO_STMT OUTPUT print:', l_stmt)
-                return l_stmt
 
             case Expr(exp):  # Lint
                 newexp, l_tmp =  self.rco_exp(exp, False)  # output: expression and enviroment
                 l_stmt = [Assign([varc], expc) for varc, expc in l_tmp]
-                print('RCO_STMT OUTPUT expr:', l_stmt)
-                return l_stmt
 
             case Assign([Name(var)], exp):  # Lvar
                 newexp, l_tmp =  self.rco_exp(exp, False)  # output: expression and enviroment
                 l_stmt =  [Assign([varc], expc) for varc, expc in l_tmp] + [Assign([Name(var)], newexp)]
-                print('RCO_STMT OUTPUT assign:', l_stmt)
-                return l_stmt
 
             case Expr(Call(Name('inpt_int'), [exp])):  # Lvar
                 newexp, l_tmp = self.rco_exp(exp, True)
-                return [Assign([varc], expc) for varc, expc in l_tmp]
+                l_stmt = [Assign([varc], expc) for varc, expc in l_tmp]
 
             case _:
                 raise Exception('Error: Compiler.rco_stmt case not yet implemented.')
+
+        print('RCO_STMT OUTPUT l_stmt:', l_stmt)
+        return l_stmt
+
 
     def remove_complex_operands(self, p: Module) -> Module:
         '''
         trip to x86 chapter 1 and 2 section 2.4 remove compex operands.
         '''
         print('RCO INPUT Module:', ast.dump(p))
+        module = None
+
         match p:
             case Module(body):  # Lint
                 l_stmt = []
                 for stmt in body:
                     l_stmt.extend(self.rco_stmt(stmt))
                 module = Module(l_stmt)
-                #ll_stmt = [self.rco_stmt(stmt) for stmt in body]
-                #module = Module(sum(ll_stmt, []))  # bue: what is this sum doing?!
-                print('RCO OUTPUT module:', ast.dump(module))
-                return module
 
             case _:
                 raise Exception('Error: Compiler.remove_complex_operands case not yet implemented.')
 
+        print('RCO OUTPUT module:', ast.dump(module))
+        return module
+
+
     ############################################################################
     # Select Instructions: Lvar mon -> x86var
     ############################################################################
+
 
     def select_arg(self, e: expr) -> arg:  # arg terminal
         '''
         trip to x86 chapter 1 and 2 section 2.5 select instructions.
         '''
         # work on atoms
-        print('SELECT_ARG INPUT:', e)
+        print('SELECT_ARG INPUT expr:', e)
+        arg_var = None
+
         match e:
             case Constant(var):  # Lint atom
                 arg_var = Immediate(var)
-                print('SELECT_ARG OUTPUT constant:', arg_var)
-                return arg_var
 
             case Name(var):  # Lvar atom
                 arg_var = Variable(var)
-                print('SELECT_ARG OUTPUT var name:', arg_var)
-                return arg_var
 
             case _:
                 raise Exception('Error: Compiler.select_arg case not yet implemented.')
+
+        print('SELECT_ARG OUTPUT arg:', arg_var)
+        return arg_var
+
 
     def select_stmt(self, s: stmt) -> List[instr]:  # stmt non terminal
         '''
         trip to x86 chapter 1 and 2 section 2.5 select instructions.
         '''
-        # workhorse
-        print('SELECT_STMT INPUT:', s)
+        print('SELECT_STMT INPUT stmt:', s)
+        l_inst = None
+
         match s:
             case Assign([Name(var)], Call(Name('input_int'), [])):  # Lint  expr
                 arg_var = self.select_arg(Name(var))
-                l_instr = [
+                l_inst = [
                     Callq(label_name('read_int'), []),
                     Instr('movq', [Reg('rax'), arg_var]),
                 ]
-                print('SELECT_STMT OUTPUT input_int:', l_instr)
-                return l_instr
 
             case Assign([Name(var)], UnaryOp(USub(), operand)):  # Lint expr : exproperator, operand
                 arg_var = self.select_arg(Name(var))
                 arg_operand = self.select_arg(operand)
-                l_instr = [
+                l_inst = [
                     Instr('movq', [arg_operand, Reg('rax')]),
                     Instr('negq', [Reg('rax')]),
                     Instr('movq', [Reg('rax'), arg_var]),
                 ]
-                print('SELECT_STMT OUTPUT neg:', l_instr)
-                return l_instr
 
             case Assign([Name(var)], BinOp(left, Add(), right)):  # Lint expr: expr, operator, expr
                 arg_var = self.select_arg(Name(var))
                 arg_left = self.select_arg(left)
                 arg_right = self.select_arg(right)
                 if arg_left == arg_var:
-                    l_instr = [
+                    l_inst = [
                         Instr('addq', [arg_right, arg_var]),
                     ]
                 elif arg_right == arg_var:
-                    l_instr = [
+                    l_inst = [
                         Instr('addq', [arg_left, arg_var]),
                     ]
                 else:
-                    l_instr = [
+                    l_inst = [
                         Instr('movq', [arg_left, arg_var]),
                         Instr('addq', [arg_right, arg_var]),
                     ]
-                print('SELECT_STMT OUTPUT add:', l_instr)
-                return l_instr
 
             case Assign([Name(var)], BinOp(left, Sub(), right)):  # Lint expr: expr, operator, expr
                 arg_var = self.select_arg(Name(var))
                 arg_left = self.select_arg(left)
                 arg_right = self.select_arg(right)
-                l_instr = [
+                l_inst = [
                     Instr('movq', [arg_left, Reg('rax')]),
                     Instr('subq', [arg_right, Reg('rax')]),
                     Instr('movq', [Reg('rax'), arg_var]),
                 ]
-                print('SELECT_STMT OUTPUT sub:', l_instr)
-                return l_instr
 
             case Expr(Call(Name('print'), [exp])):  # Lint stmt
                 arg_exp = self.select_arg(exp)
-                l_instr = [
+                l_inst = [
                     Instr('movq', [arg_exp, Reg('rdi')]),
-                    Callq(label_name('print_int'), arg_exp),
+                    Callq(label_name('print_int'), []),
                 ]
-                # BUE: is this arg_exp correct?!
-                print('SELECT_STMT OUTPUT print:', l_instr)
-                return l_instr
 
-            # bue: is terminal. resolved on the select_instructions level.
+            # bue 20240915: is terminal. resolved on the select_instructions level.
             #case Expr(exp):  # Lint stmt
             #    arg_exp = self.select_arg(exp)
-            #    l_instr = []
-            #    l_instr.append( )
-            #    print('SELECT_STMT OUTPUT exp:', l_instr)
-            #    return l_instr
+            #    l_inst = []
 
             case Assign([Name(var)], exp):  # Lvar stmt
                 arg = self.select_arg(exp)
-                l_instr = [
+                l_inst = [
                     Instr('movq', [arg, Variable(var)]),
                 ]
-                print('SELECT_STMT OUTPUT var name:', l_instr)
-                return l_instr
 
             case _:
                  raise Exception('Error: Compiler.select_stmt case not yet implemented.')
+
+        print('SELECT_STMT OUTPUT l_inst:', l_inst)
+        return l_inst
+
 
     def select_instructions(self, p: Module) -> X86Program:
         '''
         trip to x86 chapter 1 and 2 section 2.5 select instructions.
         '''
-        print('SELECT_INSTRUCTIONS INPUT:', ast.dump(p))
+        print('SELECT_INSTRUCTIONS INPUT Module:', ast.dump(p))
+        x86program = None
+
         match p:
             case Module(body):
-                l_instr = [self.select_stmt(stmt) for stmt in body]
-                x86program = X86Program(sum(l_instr, []))
-                #x86program = []
-                #for stmt in body:
-                #    instruction = self.select_stmt(stmt)
-                #    x86program.extend(instruction)
-                print('SELECT_INSTRUCTIONS OUTPUT x86program:', x86program, type(x86program))
-                return x86program
+                l_inst = []
+                for stmt in body:
+                    l_inst.extend(self.select_stmt(stmt))
+                x86program = X86Program(l_inst)
 
             case _:
                 raise Exception('Error: Compiler.select_instructions case not yet implemented.')
+
+        print('SELECT_INSTRUCTIONS OUTPUT x86program:', x86program)
+        return x86program
 
 
     ###########################################################################
@@ -376,19 +378,18 @@ class Compiler:
         print('UNCOVER_LIVE INPUT:', ast.dump(p))
         match p:
             case Module(body):
-                l_instr = [self.select_stmt(stmt) for stmt in body]
                 self.write_vars()
-                x86program = X86Program(sum(l_instr, []))
-                #x86program = []
-                #for stmt in body:
-                #    instruction = self.select_stmt(stmt)
-                #    x86program.extend(instruction)
-                print('UNCOVER_LIVE OUTPUT x86program:', x86program, type(x86program,))
-                return x86program
+
+                l_inst = []
+                for stmt in body:
+                    l_inst.extend(self.select_stmt(stmt))
+                x86program = X86Program(l_inst)
 
             case _:
                 raise Exception('Error: Compiler.select_instructions case not yet implemented.')
 
+        print('UNCOVER_LIVE OUTPUT x86program:', x86program, type(x86program,))
+        return x86program
 
     ############################################################################
     # Build Interference
@@ -397,6 +398,7 @@ class Compiler:
     def build_interference(self, p: X86Program, live_after: Dict[instr, Set[location]]) -> UndirectedAdjList:
         # YOUR CODE HERE
         pass
+
 
     ############################################################################
     # Allocate Registers
@@ -410,9 +412,6 @@ class Compiler:
     def allocate_registers(self, p: X86Program, graph: UndirectedAdjList) -> X86Program:
         # YOUR CODE HERE
         pass
-
-
-
 
 
     ############################################################################
@@ -432,11 +431,13 @@ class Compiler:
                     self.stack_space -= 8
                     home.update({Variable(arg): Deref('rbp', self.stack_space)})
                 argument = home[Variable(arg)]
-                print('ASSIGN_HOMES_ARG OUTPUT arg:', argument, home)
-                return argument
 
             case _:
                 raise Exception('Error: Compiler.assign_homes_arg case not yet implemented.')
+
+        print('ASSIGN_HOMES_ARG OUTPUT arg:', argument)
+        return argument
+
 
     def assign_homes_instr(self, i: instr, home: Dict[Variable, arg]) -> instr:
         '''
@@ -480,17 +481,23 @@ class Compiler:
                 arg_var2 = self.assign_homes_arg(Variable(arg2), home)
                 instruction = Instr(command, [arg_var1, arg_var2])
 
-            case Callq('print_int', []):  # other
+            # BUE!
+            #case Callq(label_name('print_int'), value):
+            #case Callq('print_int', value):
+            #case Callq(command, value):
+            #case Callq(command, int):
+            #case Callq('print_int', int):
+            #case Callq(label_name('print_int'), []):
+            #case Callq('print_int', []):
+            #case Callq(command, []):
                 instruction = i
 
             case _:
-                instruction = i
+                raise Exception('Error: Compiler.assign_homes_instr case not yet implemented.')
 
-                # BUE: have to be fixed!
-                #raise Exception('Error: Compiler.assign_homes_instr case not yet implemented.')
-
-        print('ASSIGN_HOMES_INSTR OUTPUT instr, home:' , instruction, home)
+        print('ASSIGN_HOMES_INSTR OUTPUT instr:' , instruction)
         return instruction
+
 
     def assign_homes(self, p: X86Program) -> X86Program:
         '''
@@ -501,19 +508,20 @@ class Compiler:
 
         match p:
             case X86Program(program):
-                l_instr = []
+                l_inst = []
                 d_home = {}
                 #d_home = self.collect_instr(body)
                 self.stack_space = 0
                 for i in program:
                     instruction = self.assign_homes_instr(i, d_home)
-                    l_instr.append(instruction)
-                x86program = X86Program(l_instr)
-                print('ASSIGN_HOMES OUTPUT X86Program:', x86program)
-                return x86program
+                    l_inst.append(instruction)
+                x86program = X86Program(l_inst)
 
             case _:
                 raise Exception('Error: Compiler.assign_homes case not yet implemented.')
+
+        print('ASSIGN_HOMES OUTPUT X86Program:', x86program)
+        return x86program
 
 
     ############################################################################
@@ -522,74 +530,71 @@ class Compiler:
 
     def patch_instr(self, i: instr) -> List[instr]:
         print('PATCH_INSTR INPUT instr:', i)
-        l_instr = []
+        l_inst = []
 
         match i:
             case Instr('movq', [Deref(reg1, arg1), Deref(reg2, arg2)]):
-                l_instr.append( Instr('movq', [Deref(reg1, arg1), Reg('rax')]) )
-                l_instr.append( Instr('movq', [Reg('rax'), Deref(reg2, arg2)]) )
+                l_inst.append( Instr('movq', [Deref(reg1, arg1), Reg('rax')]) )
+                l_inst.append( Instr('movq', [Reg('rax'), Deref(reg2, arg2)]) )
 
             case Instr('subq', [Deref(reg1, arg1), Deref(reg2, arg2)]):
-                l_instr.append( Instr('movq', [Deref(reg1, arg1), Reg('rax')]) )
-                l_instr.append( Instr('subq', [Reg('rax'), Deref(reg2, arg2)]) )
+                l_inst.append( Instr('movq', [Deref(reg1, arg1), Reg('rax')]) )
+                l_inst.append( Instr('subq', [Reg('rax'), Deref(reg2, arg2)]) )
 
             case Instr('addq', [Deref(reg1, arg1), Deref(reg2, arg2)]):
-                l_instr.append( Instr('movq', [Deref(reg1, arg1), Reg('rax')]) )
-                l_instr.append( Instr('addq', [Reg('rax'), Deref(reg2, arg2)]) )
+                l_inst.append( Instr('movq', [Deref(reg1, arg1), Reg('rax')]) )
+                l_inst.append( Instr('addq', [Reg('rax'), Deref(reg2, arg2)]) )
 
-            case Instr(command, [Immediate(arg1), Deref(reg2, arg2)]):
+            case Instr(command, [Immediate(arg1), Deref(reg2, arg2)]):  # big int
                 if arg1 >= 2**16:
-                    print('*** BUE PATCH BIG INT*******')
-                    l_instr.append( Instr(command, [Immediate(arg1), Reg('rax')]) )
-                    l_instr.append( Instr(command, [Reg('rax'), Deref(reg2, arg2)]) )
+                    l_inst.append( Instr(command, [Immediate(arg1), Reg('rax')]) )
+                    l_inst.append( Instr(command, [Reg('rax'), Deref(reg2, arg2)]) )
                 else:
-                    l_instr.append(i)
+                    l_inst.append(i)
 
-            case Instr(command, [Deref(reg1, arg1), Immediate(arg2)]):
+            case Instr(command, [Deref(reg1, arg1), Immediate(arg2)]):  # big int
                 if arg2 >= 2**16:
-                    print('*** BUE PATCH BIG INT*******')
-                    l_instr.append( Instr(command, [Immediate(arg2), Reg('rax')]) )
-                    l_instr.append( Instr(command, [Reg('rax'), Deref(reg1, arg1)]) )
+                    l_inst.append( Instr(command, [Immediate(arg2), Reg('rax')]) )
+                    l_inst.append( Instr(command, [Reg('rax'), Deref(reg1, arg1)]) )
                 else:
-                    l_instr.append(i)
+                    l_inst.append(i)
 
             case _:
-                l_instr.append(i)
+                l_inst.append(i)
 
-        print('PATCH_INSTR OUTPUT instr:', l_instr)
-        return l_instr
+        print('PATCH_INSTR OUTPUT instr:', l_inst)
+        return l_inst
+
 
     def patch_instructions(self, p: X86Program) -> X86Program:
         print('PATCH_INSTRUCTIONS INPUT X86Program:', p)
+        x86program = None
 
         match p:
             case X86Program(program):
-                l_instr = []
-                #self.pop = False
+                l_inst = []
                 for i in program:
-                    l_instruction = self.patch_instr(i)
-                    #if self.pop:
-                    #    l_instr.pop(-1)
-                    #    self.pop = False
-                    l_instr.extend(l_instruction)
-                x86program = X86Program(l_instr)
-                print('PATCH_INSTRUCTIONS OUTPUT X86Program:', x86program)
-                return x86program
-                # BUE: pop has to be fixed!
+                    l_inst.extend(self.patch_instr(i))
+                x86program = X86Program(l_inst)
 
             case _:
                 raise Exception('Error: Compiler.patch_instructions case not yet implemented.')
+
+        print('PATCH_INSTRUCTIONS OUTPUT X86Program:', x86program)
+        return x86program
 
 
     ############################################################################
     # Prelude & Conclusion: x86int -> x86int
     ############################################################################
 
+
     def prelude_and_conclusion(self, p: X86Program) -> X86Program:
         '''
         trip to x86 chapter 1 and 2 section 2.8 generate prelude and conclusion.
         '''
         print('PRELUDE_AND_CONCLUSION INPUT X86Program:', p)
+        x86program = None
 
         match p:
             case X86Program(prog):
@@ -605,9 +610,10 @@ class Compiler:
                     Instr('retq', []),
                 ]
                 x86program = X86Program(prelude + prog + conclusion)
-                print('PRELUDE_AND_CONCLUSION OUTPUT X86Program:', x86program)
-                return x86program
-
+`
             case _:
                 raise Exception('Error: Compiler.prelude_and_conclusion case not yet implemented.')
+
+        print('PRELUDE_AND_CONCLUSION OUTPUT X86Program:', x86program)
+        return x86program
 
