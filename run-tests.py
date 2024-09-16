@@ -1,3 +1,4 @@
+import argparse
 import os
 import sys
 
@@ -11,6 +12,10 @@ import interp_Lvar
 import type_check_Lvar
 from utils import run_tests, run_one_test, enable_tracing
 from interp_x86.eval_x86 import interp_x86
+
+parser = argparse.ArgumentParser()
+parser.add_argument('tpathfile', nargs='?', default='zero.py', help='python test file')
+args = parser.parse_args()
 
 enable_tracing()
 
@@ -30,7 +35,8 @@ interp_dict = {
     'patch_instructions': interp_x86,
 }
 
-if False:
+if (args.tpathfile.lower() == 'all'):
+    print('*** RUN ALL TESTS! ***')
     run_tests(
         lang = 'var', 
         compiler = compiler, 
@@ -39,8 +45,9 @@ if False:
         interp_dict = interp_dict,
     )
 else:
+    print(f'*** RUN TEST {args.tpathfile}! ***')
     run_one_test(
-        test = os.getcwd() + '/tests/var/zero.py',
+        test = os.getcwd() + f'/{args.tpathfile}',
         lang = 'var',
         compiler = compiler,
         compiler_name = 'var',

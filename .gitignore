@@ -1,2 +1,4 @@
+*.out
 **/__pycache__/
-/runtime.o
+runtime.o
+*.s
