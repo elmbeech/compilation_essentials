@@ -610,7 +610,7 @@ class Compiler:
                     Instr('retq', []),
                 ]
                 x86program = X86Program(prelude + prog + conclusion)
-`
+
             case _:
                 raise Exception('Error: Compiler.prelude_and_conclusion case not yet implemented.')
 
