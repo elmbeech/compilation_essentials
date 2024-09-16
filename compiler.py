@@ -1,14 +1,17 @@
+
+# libraries
 import ast
 from ast import *  # Add, BinOP, Call, Constant, expr, Name, Sub, UnaryOP, USub
 # https://docs.python.org/3/library/language.html
 # https://docs.python.org/3/library/ast.html
 # https://greentreesnakes.readthedocs.io/en/latest/
+from graph import UndirectedAdjList
+import os
 from utils import *  # generate_name, input_int, label_name
 from x86_ast import *  # arg, Callq, Deref, Immediate, Instr, Jump, Reg, Retq, Variable, X86Program
-import os
-from typing import List, Tuple, Set, Dict
-from graph import UndirectedAdjList
 
+# types
+from typing import List, Tuple, Set, Dict
 Binding = Tuple[Name, expr]
 Temporaries = List[Binding]
 
@@ -104,7 +107,6 @@ def pe_P_int(p):
             raise Exception('Error: pe_P_int case not yet implemented.')
 
 
-
 # classes
 
 class Compiler:
@@ -112,11 +114,6 @@ class Compiler:
     ############################################################################
     # Remove Complex Operands: Lvar -> Lvar mon
     ############################################################################
-
-    def big_constant(self, value: int):
-        if value >= 2**16:
-            value = value % 2**16
-        return value
 
     def rco_exp(self, e: expr, need_atomic : bool) -> Tuple[expr, Temporaries]:
         '''
@@ -126,7 +123,6 @@ class Compiler:
         print('RCO_EXP INPUT expr need_atomic :', e, need_atomic)
         match e:
             case Constant(value):  # Lint; always leaf
-                value = self.big_constant(value)
                 constant = Constant(value)
                 print('RCO_EXP OUTPUT constant atom:', (constant, []))
                 return (constant, [])
@@ -140,7 +136,7 @@ class Compiler:
                 print('RCO_EXP OUTPUT input_int atom:', (inputint, []))
                 return (inputint, [])
 
-            case UnaryOp(USub(), operand):  # Lint; maybe complex; operator, operand
+            case UnaryOp(USub(), operand):  # Lint and Lvar; maybe complex; operator, operand
                 newexp, l_tmp = self.rco_exp(operand, True)
                 neg = UnaryOp(USub(), newexp)
                 if need_atomic:
@@ -285,7 +281,11 @@ class Compiler:
                 arg_var = self.select_arg(Name(var))
                 arg_left = self.select_arg(left)
                 arg_right = self.select_arg(right)
-                if arg_left == arg_right:
+                if arg_left == arg_var:
+                    l_instr = [
+                        Instr('addq', [arg_right, arg_var]),
+                    ]
+                elif arg_right == arg_var:
                     l_instr = [
                         Instr('addq', [arg_left, arg_var]),
                     ]
@@ -526,19 +526,32 @@ class Compiler:
 
         match i:
             case Instr('movq', [Deref(reg1, arg1), Deref(reg2, arg2)]):
-                #self.pop = True
                 l_instr.append( Instr('movq', [Deref(reg1, arg1), Reg('rax')]) )
                 l_instr.append( Instr('movq', [Reg('rax'), Deref(reg2, arg2)]) )
 
             case Instr('subq', [Deref(reg1, arg1), Deref(reg2, arg2)]):
-                #self.pop = True
                 l_instr.append( Instr('movq', [Deref(reg1, arg1), Reg('rax')]) )
                 l_instr.append( Instr('subq', [Reg('rax'), Deref(reg2, arg2)]) )
 
-            case Instr('addq', [Deref(reg1, arg1), Deref(reg2,arg2)]):
-                #self.pop = True
+            case Instr('addq', [Deref(reg1, arg1), Deref(reg2, arg2)]):
                 l_instr.append( Instr('movq', [Deref(reg1, arg1), Reg('rax')]) )
                 l_instr.append( Instr('addq', [Reg('rax'), Deref(reg2, arg2)]) )
+
+            case Instr(command, [Immediate(arg1), Deref(reg2, arg2)]):
+                if arg1 >= 2**16:
+                    print('*** BUE PATCH BIG INT*******')
+                    l_instr.append( Instr(command, [Immediate(arg1), Reg('rax')]) )
+                    l_instr.append( Instr(command, [Reg('rax'), Deref(reg2, arg2)]) )
+                else:
+                    l_instr.append(i)
+
+            case Instr(command, [Deref(reg1, arg1), Immediate(arg2)]):
+                if arg2 >= 2**16:
+                    print('*** BUE PATCH BIG INT*******')
+                    l_instr.append( Instr(command, [Immediate(arg2), Reg('rax')]) )
+                    l_instr.append( Instr(command, [Reg('rax'), Deref(reg1, arg1)]) )
+                else:
+                    l_instr.append(i)
 
             case _:
                 l_instr.append(i)
@@ -580,7 +593,7 @@ class Compiler:
 
         match p:
             case X86Program(prog):
-                frame_space = align(n = -(self.stack_space), alignment=16 )
+                frame_space = align(n = -(self.stack_space), alignment=16)
                 prelude = [
                     Instr('pushq', [Reg('rbp')]),
                     Instr('movq', [Reg('rsp'), Reg('rbp')]),
