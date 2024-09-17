@@ -14,7 +14,7 @@ from utils import run_tests, run_one_test, enable_tracing
 from interp_x86.eval_x86 import interp_x86
 
 parser = argparse.ArgumentParser()
-parser.add_argument('tpathfile', nargs='?', default='zero.py', help='python test file')
+parser.add_argument('tpathfile', nargs='?', default='tests/var/zero.py', help='python test file')
 args = parser.parse_args()
 
 enable_tracing()

@@ -365,39 +365,59 @@ class Compiler:
     ###########################################################################
 
     def read_vars(self, i: instr) -> Set[location]:
+        print('READ_VARS INPUT:', i)
+        e_read = set()
 
-        # YOUR CODE HERE
-        pass
+        match i:
+            case Instr(command, [Variable(one), two]):
+               e_read.add(Variable(one))
+
+            case Instr(command, [Reg(one), two]):
+               e_read.add(Reg(one))
+
+            #case Instr(command, [one, Reg(two)]):
+            #   e_read.add(Reg(two))
+
+            case _:
+                pass
+                #raise Exception('Error: Compiler.read_vars case not yet implemented.')
+
+        print('READ_VARS OUTPUT:', e_read)
+        return e_read
 
     def write_vars(self, i: instr) -> Set[location]:
-        # YOUR CODE HERE
-        self.read_vars
-        pass
+        print('WRITE_VARS INPUT:', i)
+        e_write = set()
+        return(e_write)
+        print('WRITE_VARS OUTPUT:')
+
 
     def uncover_live(self, p: X86Program) -> Dict[instr, Set[location]]:
-        print('UNCOVER_LIVE INPUT:', ast.dump(p))
+        print('UNCOVER_LIVE INPUT:', p, type(p))
+        e_read = set()
+        e_write = set()
+
         match p:
-            case Module(body):
-                self.write_vars()
-
-                l_inst = []
-                for stmt in body:
-                    l_inst.extend(self.select_stmt(stmt))
-                x86program = X86Program(l_inst)
-
+            case X86Program(body):
+                #l_inst = []
+                # l_inst.extend(self.select_stmt(stmt))
+                for i in body[::-1]:
+                     e_read = e_read.union(self.read_vars(i))
+                     e_write = e_write.union(self.write_vars(i))
             case _:
                 raise Exception('Error: Compiler.select_instructions case not yet implemented.')
 
-        print('UNCOVER_LIVE OUTPUT x86program:', x86program, type(x86program,))
-        return x86program
+        print('UNCOVER_LIVE OUTPU dict:', e_read, e_write)
+        e_loc = e_read.union(e_write)
+        return e_loc
 
     ############################################################################
     # Build Interference
     ############################################################################
 
     def build_interference(self, p: X86Program, live_after: Dict[instr, Set[location]]) -> UndirectedAdjList:
-        # YOUR CODE HERE
-        pass
+        print('BUILD_INTERFERENCE INPUT:', ast.dump(p))
+        print('BUILD_INTERFERENCE OUTPUT:')
 
 
     ############################################################################
@@ -406,12 +426,12 @@ class Compiler:
 
     # Returns the coloring and the set of spilled variables.
     def color_graph(self, graph: UndirectedAdjList, variables: Set[location]) -> Tuple[Dict[location, int], Set[location]]:
-        # YOUR CODE HERE
-        pass
+        print('COLOR_GRAPH INPUT:')
+        print('COLOR_GRAPH OUTPUT:')
 
     def allocate_registers(self, p: X86Program, graph: UndirectedAdjList) -> X86Program:
-        # YOUR CODE HERE
-        pass
+        print('ALLOCATE_REGISTERS INPUT:', ast.dump(p))
+        print('ALLOCATE_REGISTERS OUTPUT:')
 
 
     ############################################################################
@@ -492,6 +512,7 @@ class Compiler:
 
         match p:
             case X86Program(program):
+                self.uncover_live(p)
                 l_inst = []
                 d_home = {}
                 #d_home = self.collect_instr(body)
