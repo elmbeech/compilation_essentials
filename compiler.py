@@ -443,26 +443,20 @@ class Compiler:
         '''
         trip to x86 chapter 1 and 2 section 2.6 assign homes.
         '''
-        print('ASSIGN_HOMES_INSTR INPUT instr home:', i, home)
+        print('ASSIGN_HOMES_INSTR INPUT instr, home:', i, home)
         instruction = None
 
         # Immediate, Reg, Variable: 3**2 = 9 [cases]
+        # only variables have to be assigned a home
         match i:
-            case Instr(command, [Immediate(arg1), Immediate(arg2)]):  # ii
-                instruction = i
 
-            case Instr(command, [Immediate(arg1), Reg(arg2)]):  # ir
-                instruction = i
+            case Instr(command, [Variable(arg)]):  # v
+                arg_var1 = self.assign_homes_arg(Variable(arg), home)
+                instruction = Instr(command, [arg_var])
 
             case Instr(command, [Immediate(arg1), Variable(arg2)]):  # iv
                 arg_var2 = self.assign_homes_arg(Variable(arg2), home)
                 instruction = Instr(command, [Immediate(arg1), arg_var2])
-
-            case Instr(command, [Reg(arg1), Immediate(arg2)]):  # ri
-                instruction = i
-
-            case Instr(command, [Reg(arg1), Reg(arg2)]):  # rr
-                instruction = i
 
             case Instr(command, [Reg(arg1), Variable(arg2)]):  # rv
                 arg_var2 = self.assign_homes_arg(Variable(arg2), home)
@@ -481,19 +475,9 @@ class Compiler:
                 arg_var2 = self.assign_homes_arg(Variable(arg2), home)
                 instruction = Instr(command, [arg_var1, arg_var2])
 
-            # BUE!
-            #case Callq(label_name('print_int'), value):
-            #case Callq('print_int', value):
-            #case Callq(command, value):
-            #case Callq(command, int):
-            #case Callq('print_int', int):
-            #case Callq(label_name('print_int'), []):
-            #case Callq('print_int', []):
-            #case Callq(command, []):
+            case _:
                 instruction = i
 
-            case _:
-                raise Exception('Error: Compiler.assign_homes_instr case not yet implemented.')
 
         print('ASSIGN_HOMES_INSTR OUTPUT instr:' , instruction)
         return instruction
