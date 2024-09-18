@@ -19,9 +19,9 @@ Temporaries = List[Binding]
 # const
 
 # section 4.1 register calling convention
-e_func = {Reg('rdi'), Reg('rsi'), Reg('rdx'), Reg('rcx'), Reg('r8'), Reg('r9')}
+l_func = [Reg('rdi'), Reg('rsi'), Reg('rdx'), Reg('rcx'), Reg('r8'), Reg('r9')]
 
-e_caller_saved = e_func.union({Reg('rax'), Reg('r10'), Reg('r11')})
+e_caller_saved = set(l_func).union({Reg('rax'), Reg('r10'), Reg('r11')})
 
 e_callee_saved = {
     Reg('rsp'), Reg('rbp'), Reg('rbx'),
@@ -385,20 +385,60 @@ class Compiler:
         e_read = set()
 
         match i:
-            case Instr(command, [Reg(one), two]):
-               e_read.add(Reg(one))
+            # bue 2024-09-18 nop: popq pushq
+            # negq
+            case Instr('negq', [Reg(arg)]):  # r
+               e_read.add(Reg(arg))
 
-            case Instr(command, [Variable(one), two]):
-               e_read.add(Variable(one))
+            # movq
+            case Instr('movq', [Reg(arg1), arg2]):  # ri, rr, rv
+               e_read.add(Reg(arg1))
 
-            case Callq(command, []):
-               e_callee_saved.intersection(e_read)
+            case Instr('movq', [Variable(arg1), arg2]):  # vi, vr, vv
+               e_read.add(Variable(arg1))
+
+            # addq or subq
+            case Instr('addq', [Immediate(arg1), Reg(arg2)]) | Instr('subq', [Immediate(arg1), Reg(arg2)]):  # ir
+               e_read.add(Reg(arg2))
+
+            case Instr('addq', [Immediate(arg1), Variable(arg2)]) | Instr('subq', [Immediate(arg1), Variable(arg2)]):  # iv
+               e_read.add(Variable(arg2))
+
+            case Instr('addq', [Reg(arg1), Immediate(arg2)]) | Instr('subq', [Reg(arg1), Immediate(arg2)]):  # ri
+               e_read.add(Reg(arg1))
+
+            case Instr('addq', [Reg(arg1), Reg(arg2)]) | Instr('subq', [Reg(arg1), Reg(arg2)]):  # rr
+               e_read.add(Reg(arg1))
+               e_read.add(Reg(arg2))
+
+            case Instr('addq', [Reg(arg1), Variable(arg2)]) | Instr('subq', [Reg(arg1), Variable(arg2)]):  # rv
+               e_read.add(Reg(arg1))
+               e_read.add(Variable(arg2))
+
+            case Instr('addq', [Variable(arg1), Immediate(arg2)]) | Instr('subq', [Variable(arg1), Immediate(arg2)]):  # vi
+               e_read.add(Variable(arg1))
+
+            case Instr('addq', [Variable(arg1), Reg(arg2)]) | Instr('subq', [Variable(arg1), Reg(arg2)]):  # vr
+               e_read.add(Variable(arg1))
+               e_read.add(Reg(arg2))
+
+            case Instr('addq', [Variable(arg1), Variable(arg2)]) | Instr('subq', [Variable(arg1), Variable(arg2)]):  # vv
+               e_read.add(Variable(arg1))
+               e_read.add(Variable(arg2))
+
+            # callq
+            case Callq('print', value):  # read form e_callee_saved register
+                if value > len(e_callee_saved):
+                    raise Exception(f'Error: Compiler.read_vars callq case for functions with > {len(e_callee_saved)} arguments not yet implemented.')
+                for reg in e_callee_saved:
+                    e_read.add(reg)
 
             case _:
                 pass
 
         print('READ_VARS OUTPUT:', e_read)
         return e_read
+
 
     def write_vars(self, i: instr) -> Set[location]:
         '''
@@ -408,20 +448,26 @@ class Compiler:
         e_write = set()
 
         match i:
-            case Instr(command, [one, Reg(two)]):
-                e_write.add(Reg(two))
+            # bue 2024-09-18 nop: popq pushq
+            case Instr('negq', [Reg(arg)]):  # r
+                e_write.add(Reg(arg))
 
-            case Instr(command, [one, Variable(two)]):
-                e_write.add(Variable(one))
+            case Instr('negq', [Variable(arg)]):  # v
+                e_write.add(Variable(arg))
 
-            case Instr(command, [Reg(one)]):
-                e_write.add(Reg(one))
+            # addq, movq, subq
+            case Instr(command, [arg1, Reg(arg2)]):  # ir, rr, vr
+                e_write.add(Reg(arg2))
 
-            case Instr(command, [Variable(one)]):
-                e_write.add(Variable(one))
+            case Instr(command, [arg1, Variable(arg2)]):  # iv, rv, vv
+                e_write.add(Variable(arg2))
 
-            case Callq(command, []):
-                e_caller_saved.intersection(e_write)
+            # callq
+            case Callq('read_int', value):  # write in e_caller_saved registers
+                if value > len(l_func):
+                    raise Exception(f'Error: Compiler.write_vars callq case for functions with > {len(l_func)} arguments not yet implemented.')
+                for n in range(value):
+                    e_write.add(Reg(l_func[n]))
 
             case _:
                 pass
@@ -440,30 +486,61 @@ class Compiler:
         match p:
             case X86Program(body):
                 d_after = {}
-                e_read = set()
-                e_write = set()
                 e_after = set()
                 for i in body[::-1]:
-                     e_read = e_read.union(self.read_vars(i))
-                     e_write = e_write.union(self.write_vars(i))
+                     e_read = self.read_vars(i)
+                     e_write = self.write_vars(i)
                      e_before = (e_after.difference(e_write)).union(e_read)
                      d_after.update({i: e_after})
                      e_after = e_before
-                e_location = e_read.union(e_write)
+                     #e_location = e_read.union(e_write)
 
             case _:
                 raise Exception('Error: Compiler.select_instructions case not yet implemented.')
 
         print('UNCOVER_LIVE OUTPU dict:', d_after)
-        return None
+        return d_after
+
 
     ############################################################################
     # Build Interference
     ############################################################################
 
     def build_interference(self, p: X86Program, live_after: Dict[instr, Set[location]]) -> UndirectedAdjList:
-        print('BUILD_INTERFERENCE INPUT:', ast.dump(p))
-        print('BUILD_INTERFERENCE OUTPUT:')
+        '''
+        register allocation chapter 2 section 4.3 build the interference graph
+        '''
+        print('BUILD_INTERFERENCE INPUT:', p)
+        g = None
+
+        match p:
+            case X86Program(body):
+
+                g = UndirectedAdjList()
+                for i in body:
+                    match i:
+                        case Callq(command, []):  # bue: print read_int
+                            for dst in e_caller_saved:  # bue: why ate this not only the l_func ones?
+                                for var in live_after[i]:
+                                    g.add_edge(dst, var)
+
+                        case Inst('movq', [src, dst]):
+                            for var in live_after[i]:
+                                if (var != dst) and (var != src):
+                                    g.add_edge(dst, var)
+
+                        case _:
+                            e_write = self.write_vars(i)
+                            for dst in e_write:
+                                for var in live_after[i]:
+                                    if (var != dst):
+                                        g.add_edge(dst, var)
+
+            case _:
+                raise Exception('Error: Compiler.build_interference case not yet implemented.')
+
+        print('BUILD_INTERFERENCE OUTPUT:', g.show())
+        return g
 
 
     ############################################################################
@@ -558,7 +635,14 @@ class Compiler:
 
         match p:
             case X86Program(program):
-                self.uncover_live(p)
+
+                # graph coloring register allocation version:
+                live_after = self.uncover_live(p)
+                graph = self.build_interference(p, live_after)
+                #variables = self.(p)
+                #self.color_graph(graph, variables)
+
+                # simple register allocaltion version:
                 l_inst = []
                 d_home = {}
                 #d_home = self.collect_instr(body)
