@@ -16,6 +16,19 @@ Binding = Tuple[Name, expr]
 Temporaries = List[Binding]
 
 
+# const
+
+# section 4.1 register calling convention
+e_func = {Reg('rdi'), Reg('rsi'), Reg('rdx'), Reg('rcx'), Reg('r8'), Reg('r9')}
+
+e_caller_saved = e_func.union({Reg('rax'), Reg('r10'), Reg('r11')})
+
+e_callee_saved = {
+    Reg('rsp'), Reg('rbp'), Reg('rbx'),
+    Reg('r12'), Reg('r13'), Reg('r14'), Reg('r15'),
+}
+
+
 # functions
 
 def pe_neg(r):
@@ -365,51 +378,84 @@ class Compiler:
     ###########################################################################
 
     def read_vars(self, i: instr) -> Set[location]:
+        '''
+        register allocation chapter 2 section 4.2 liveness analysis
+        '''
         print('READ_VARS INPUT:', i)
         e_read = set()
 
         match i:
-            case Instr(command, [Variable(one), two]):
-               e_read.add(Variable(one))
-
             case Instr(command, [Reg(one), two]):
                e_read.add(Reg(one))
 
-            #case Instr(command, [one, Reg(two)]):
-            #   e_read.add(Reg(two))
+            case Instr(command, [Variable(one), two]):
+               e_read.add(Variable(one))
+
+            case Callq(command, []):
+               e_callee_saved.intersection(e_read)
 
             case _:
                 pass
-                #raise Exception('Error: Compiler.read_vars case not yet implemented.')
 
         print('READ_VARS OUTPUT:', e_read)
         return e_read
 
     def write_vars(self, i: instr) -> Set[location]:
+        '''
+        register allocation chapter 2 section 4.2 liveness analysis
+        '''
         print('WRITE_VARS INPUT:', i)
         e_write = set()
+
+        match i:
+            case Instr(command, [one, Reg(two)]):
+                e_write.add(Reg(two))
+
+            case Instr(command, [one, Variable(two)]):
+                e_write.add(Variable(one))
+
+            case Instr(command, [Reg(one)]):
+                e_write.add(Reg(one))
+
+            case Instr(command, [Variable(one)]):
+                e_write.add(Variable(one))
+
+            case Callq(command, []):
+                e_caller_saved.intersection(e_write)
+
+            case _:
+                pass
+
+        print('WRITE_VARS OUTPUT:', e_write)
         return(e_write)
-        print('WRITE_VARS OUTPUT:')
 
 
     def uncover_live(self, p: X86Program) -> Dict[instr, Set[location]]:
-        print('UNCOVER_LIVE INPUT:', p, type(p))
-        e_read = set()
-        e_write = set()
+        '''
+        register allocation chapter 2 section 4.2 liveness analysis
+        '''
+        print('UNCOVER_LIVE INPUT:', p)
+        d_after = None
 
         match p:
             case X86Program(body):
-                #l_inst = []
-                # l_inst.extend(self.select_stmt(stmt))
+                d_after = {}
+                e_read = set()
+                e_write = set()
+                e_after = set()
                 for i in body[::-1]:
                      e_read = e_read.union(self.read_vars(i))
                      e_write = e_write.union(self.write_vars(i))
+                     e_before = (e_after.difference(e_write)).union(e_read)
+                     d_after.update({i: e_after})
+                     e_after = e_before
+                e_location = e_read.union(e_write)
+
             case _:
                 raise Exception('Error: Compiler.select_instructions case not yet implemented.')
 
-        print('UNCOVER_LIVE OUTPU dict:', e_read, e_write)
-        e_loc = e_read.union(e_write)
-        return e_loc
+        print('UNCOVER_LIVE OUTPU dict:', d_after)
+        return None
 
     ############################################################################
     # Build Interference
