@@ -10,6 +10,8 @@ import os
 from utils import *  # generate_name, input_int, label_name
 from x86_ast import *  # arg, Callq, Deref, Immediate, Instr, Jump, Reg, Retq, Variable, X86Program
 
+from priority_queue import PriorityQueue
+
 # types
 from typing import List, Tuple, Set, Dict
 Binding = Tuple[Name, expr]
@@ -427,11 +429,12 @@ class Compiler:
                e_read.add(Variable(arg2))
 
             # callq
-            case Callq('print', value):  # read form e_callee_saved register
-                if value > len(e_callee_saved):
-                    raise Exception(f'Error: Compiler.read_vars callq case for functions with > {len(e_callee_saved)} arguments not yet implemented.')
-                for reg in e_callee_saved:
-                    e_read.add(reg)
+            case Callq('print', value):  # read form e_caller_saved register
+                #if value > len(e_callee_saved):
+		#    raise Exception(f'Error: Compiler.read_vars callq case for functions with > {len(e_callee_saved)} arguments not yet implemented.')
+		#for reg in e_callee_saved:
+		#   e_read.add(reg)
+		e_read.add(Reg('rdi'))
 
             case _:
                 pass
@@ -550,6 +553,40 @@ class Compiler:
     # Returns the coloring and the set of spilled variables.
     def color_graph(self, graph: UndirectedAdjList, variables: Set[location]) -> Tuple[Dict[location, int], Set[location]]:
         print('COLOR_GRAPH INPUT:')
+        ei_variable = set() 
+        for location in variables:
+              ei_variable.add(color_map[location])
+
+        di_var = {}
+        for  i_var in variables:
+             die_var.update({i_var: set()})
+
+        dii_var = {}
+        for i_var, e_var in die_var():
+            dii_var.update({i_var, len(e_var)})
+
+        # build priority queuq
+        def less(x, y):
+            return dii_var[x.key] < di_var[y.key]
+        queue = PriorityQueue(less)
+        for i_var, v in dii_var.items():
+            queue.push(i_var)
+
+        # pop most saturated value 
+        i_satu = queue.pop()
+
+        # lowest color  not adjacent
+        ei_not_adjacent = ei_variable.difference()
+        
+        
+
+
+        prior_q = PriorityQueue(graph)
+        used_colors = {}
+        while prior_q.heap.heap_size != 0:
+            satur =
+            v = prior_q.pop()
+
         print('COLOR_GRAPH OUTPUT:')
 
     def allocate_registers(self, p: X86Program, graph: UndirectedAdjList) -> X86Program:
