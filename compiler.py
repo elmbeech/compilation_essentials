@@ -598,7 +598,7 @@ class Compiler:
 
             # get lowest color not adjacent
             # if necessary, update rainbow with spoilled color
-            ei_colorpot = doe_satur[o_var].difference(ei_rainbow)
+            ei_colorpot = ei_rainbow.difference(doe_satur[o_var])
             if len(ei_colorpot) != 0:
                 i_color = min(ei_colorpot)
             else:
