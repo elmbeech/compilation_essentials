@@ -30,6 +30,17 @@ e_callee_saved = {
     Reg('r12'), Reg('r13'), Reg('r14'), Reg('r15'),
 }
 
+color_map = {
+    0 : Reg('rcx'), 1 : Reg('rdx'), 2 : Reg('rsi'), 3: Reg('rdi'),
+    4 : Reg('r8'), 5 : Reg('r9'), 6 : Reg('r10'), 7 : Reg('rbx'),
+    8 : Reg('r12'), 9 : Reg('r13'), 10 : Reg('14'),
+}
+
+non_color = {
+    Reg('rax') : -1, Reg('rsp') : -2, Reg('rbp') : -3, Reg('r11') : -4,
+    Reg('r15') : -5,
+}
+
 
 # functions
 
@@ -431,10 +442,10 @@ class Compiler:
             # callq
             case Callq('print', value):  # read form e_caller_saved register
                 #if value > len(e_callee_saved):
-		#    raise Exception(f'Error: Compiler.read_vars callq case for functions with > {len(e_callee_saved)} arguments not yet implemented.')
-		#for reg in e_callee_saved:
-		#   e_read.add(reg)
-		e_read.add(Reg('rdi'))
+                #    raise Exception(f'Error: Compiler.read_vars callq case for functions with > {len(e_callee_saved)} arguments not yet implemented.')
+                #for reg in e_callee_saved:
+                #   e_read.add(reg)
+                e_read.add(Reg('rdi'))
 
             case _:
                 pass
@@ -523,7 +534,7 @@ class Compiler:
                 for i in body:
                     match i:
                         case Callq(command, []):  # bue: print read_int
-                            for dst in e_caller_saved:  # bue: why ate this not only the l_func ones?
+                            for dst in e_caller_saved:  # bue: why are this not only the l_func ones?
                                 for var in live_after[i]:
                                     g.add_edge(dst, var)
 
@@ -553,41 +564,61 @@ class Compiler:
     # Returns the coloring and the set of spilled variables.
     def color_graph(self, graph: UndirectedAdjList, variables: Set[location]) -> Tuple[Dict[location, int], Set[location]]:
         print('COLOR_GRAPH INPUT:')
-        ei_variable = set() 
-        for location in variables:
-              ei_variable.add(color_map[location])
 
-        di_var = {}
-        for  i_var in variables:
-             die_var.update({i_var: set()})
+        # get color inetger
+        ei_rainbow = set(color_map.keys())
 
-        dii_var = {}
-        for i_var, e_var in die_var():
-            dii_var.update({i_var, len(e_var)})
+        # get spilled var set
+        eo_spilled = set()
 
-        # build priority queuq
+        # extract variable objects from graph
+        w = set(graph.vertices())
+
+        # get var color integer mapping
+        doi_color = {}
+        for o_var in w:
+            doi_color.update({o_var : None})
+
+        # get satutration dictionary
+        doe_satur = {}
+        for o_var in w:
+            doe_satur.update({o_var : set()})
+
+        # build priority queue
         def less(x, y):
-            return dii_var[x.key] < di_var[y.key]
-        queue = PriorityQueue(less)
-        for i_var, v in dii_var.items():
-            queue.push(i_var)
+            return len(doe_satur[x.key]) < len(doe_satur[y.key])
+        pqueue = PriorityQueue(less)
+        for o_var, e_satur in doe_satur.items():
+            pqueue.push(o_var)
 
-        # pop most saturated value 
-        i_satu = queue.pop()
+        # traverse the graph
+        while pqueue.heap.heap_size != 0:
+            # pop most saturated value
+            o_var = pqueue.pop()
 
-        # lowest color  not adjacent
-        ei_not_adjacent = ei_variable.difference()
-        
-        
+            # get lowest color not adjacent
+            # if necessary, update rainbow with spoilled color
+            ei_colorpot = doe_satur[o_var].difference(ei_rainbow)
+            if len(ei_colorpot) != 0:
+                i_color = min(ei_colorpot)
+            else:
+                i_color = max(ei_rainbow) + 1
+                ei_rainbow.add(i_color)
 
+            # update spilled varuiable set
+            if i_color >= len(color_map):
+                eo_spilled.add(o_var)
 
-        prior_q = PriorityQueue(graph)
-        used_colors = {}
-        while prior_q.heap.heap_size != 0:
-            satur =
-            v = prior_q.pop()
+            # color variable
+            doi_color.update({o_var : i_color})
 
-        print('COLOR_GRAPH OUTPUT:')
+            # update saturation
+            for o_adj in graph.adjacent(o_var):
+                doe_satur[o_adj].add(i_color)
+
+        print('COLOR_GRAPH OUTPUT dict coloring and set spilled var:', doi_color, eo_spilled)
+        return (doi_color, eo_spilled)
+
 
     def allocate_registers(self, p: X86Program, graph: UndirectedAdjList) -> X86Program:
         print('ALLOCATE_REGISTERS INPUT:', ast.dump(p))
@@ -677,7 +708,7 @@ class Compiler:
                 live_after = self.uncover_live(p)
                 graph = self.build_interference(p, live_after)
                 #variables = self.(p)
-                #self.color_graph(graph, variables)
+                self.color_graph(graph, set())
 
                 # simple register allocaltion version:
                 l_inst = []
