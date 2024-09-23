@@ -444,7 +444,7 @@ class Compiler:
                e_read.add(Variable(arg2))
 
             # callq
-            case Callq('print', value):  # read form e_caller_saved function register
+            case Callq('print', [value]):  # read form e_caller_saved function register
                 if value > len(l_func):
                     raise Exception(f'Error: Compiler.read_vars callq case for functions with > {len(l_func)} arguments not yet implemented.')
                 for n in range(value):
@@ -480,7 +480,7 @@ class Compiler:
                 e_write.add(Variable(arg2))
 
             # callq
-            case Callq('read_int', value):  # write in e_caller_saved function registers
+            case Callq('read_int', [value]):  # write in e_caller_saved function registers
                 if value > len(l_func):
                     raise Exception(f'Error: Compiler.write_vars callq case for functions with > {len(l_func)} arguments not yet implemented.')
                 for n in range(value):
@@ -502,21 +502,22 @@ class Compiler:
 
         match p:
             case X86Program(body):
-                d_after = {}
+                e_location = set()
                 e_after = set()
+                d_after = {}
                 for i in body[::-1]:
                      e_read = self.read_vars(i)
                      e_write = self.write_vars(i)
                      e_before = (e_after.difference(e_write)).union(e_read)
                      d_after.update({i: e_after})
                      e_after = e_before
-                     #e_location = e_read.union(e_write)
+                     e_location = e_location.union(e_read.union(e_write))
 
             case _:
                 raise Exception('Error: Compiler.select_instructions case not yet implemented.')
 
         print('UNCOVER_LIVE OUTPU dict:', d_after)
-        return d_after
+        return (d_after, e_location)
 
 
     ############################################################################
@@ -561,7 +562,7 @@ class Compiler:
 
 
     ############################################################################
-    # Allocate Registers
+    # Assign Homes: x86var -> x86var
     ############################################################################
 
     # Returns the coloring and the set of spilled variables.
@@ -579,12 +580,12 @@ class Compiler:
 
         # get var color integer mapping
         doi_color = {}
-        for o_var in w:
+        for o_var in variables:
             doi_color.update({o_var : None})
 
         # get satutration dictionary
         doe_satur = {}
-        for o_var in w:
+        for o_var in variables:
             doe_satur.update({o_var : set()})
 
         # build priority queue
@@ -647,75 +648,6 @@ class Compiler:
         return argument
 
 
-    #def allocate_registers(self, p: X86Program, graph: UndirectedAdjList) -> X86Program:
-    def assign_homes(self, p: X86Program) -> X86Program:
-        print('ALLOCATE_REGISTERS INPUT:', p)
-
-        x86program = None
-
-        match p:
-            case X86Program(program):
-
-                # graph coloring register allocation version:
-                live_after = self.uncover_live(p)
-                graph = self.build_interference(p, live_after)
-                variables = set() # self.(p)
-                var_to_color, var_spilled = self.color_graph(graph, variables)
-
-                # get complete color to memory mapping
-                d_color_to_memory = color_to_mem.copy()
-                self.stack_space = 0
-                for var in var_spilled:
-                    self.stack_space -= 8
-                    d_color_to_memory.update({var: Deref('rbp', self.stack_space)})
-
-                # generate 
-                d_var_to_memory = {}
-                for var, i_color in var_to_color.items():
-                    d_var_to_memory.update({var : d_color_to_memory[i_color]})
-                
-                # translate x86var to x86 (self.assign_homes_instr)
-                l_inst = []
-                self.stack_space = 0
-                for i in program:
-                    instruction = self.assign_homes_instr(i, d_var_to_memory)
-                    l_inst.append(instruction)
-                x86program = X86Program(l_inst)
-
-            case _:
-                raise Exception('Error: Compiler.assign_homes case not yet implemented.')
-
-        print('ALLOCATE_REGISTERS OUTPUT X86Program:', x86program)
-        return x86program
-
-
-    ############################################################################
-    # Assign Homes: x86var -> x86var
-    ############################################################################
-
-    """
-    def assign_homes_arg(self, a: arg, home: Dict[Variable, arg]) -> arg:
-        '''
-        trip to x86 chapter 1 and 2 section 2.6 assign homes.
-        '''
-        print('ASSIGN_HOMES_ARG INPUT arg home:', a, home)
-        argument = None
-
-        match a:
-            case Variable(arg):
-                if not (Variable(arg) in home.keys()):
-                    self.stack_space -= 8
-                    home.update({Variable(arg): Deref('rbp', self.stack_space)})
-                argument = home[Variable(arg)]
-
-            case _:
-                raise Exception('Error: Compiler.assign_homes_arg case not yet implemented.')
-
-        print('ASSIGN_HOMES_ARG OUTPUT arg:', argument)
-        return argument
-    """
-
-
     def assign_homes_instr(self, i: instr, home: Dict[Variable, arg]) -> instr:
         '''
         trip to x86 chapter 1 and 2 section 2.6 assign homes.
@@ -760,6 +692,97 @@ class Compiler:
         return instruction
 
 
+
+    def assign_homes(self, p: X86Program) -> X86Program:
+        print('ALLOCATE_REGISTERS INPUT X86Program:', p)
+
+        x86program = None
+
+        match p:
+            case X86Program(program):
+
+                # graph coloring register allocation version:
+                live_after, variables = self.uncover_live(p)
+                graph = self.build_interference(p, live_after)
+                var_to_color, var_spilled = self.color_graph(graph, variables)
+
+                # get complete color to memory mapping
+                d_color_to_memory = color_to_mem.copy()
+                self.stack_space = 0
+                for var in var_spilled:
+                    self.stack_space -= 8
+                    d_color_to_memory.update({var: Deref('rbp', self.stack_space)})
+
+                # generate
+                d_var_to_memory = {}
+                for var, i_color in var_to_color.items():
+                    d_var_to_memory.update({var : d_color_to_memory[i_color]})
+
+                # translate x86var to x86 (self.assign_homes_instr)
+                l_inst = []
+                self.stack_space = 0
+                for i in program:
+                    instruction = self.assign_homes_instr(i, d_var_to_memory)
+                    l_inst.append(instruction)
+                x86program = X86Program(l_inst)
+
+                # bue: how to add an ast filed?
+                self.i_spilled = len(var_spilled)
+                self.used_callee = set(var_to_color.keys()).intersection(e_callee_saved)
+                print('spilled and callee:', self.i_spilled, self.used_callee)
+
+            case _:
+                raise Exception('Error: Compiler.assign_homes case not yet implemented.')
+
+        print('ALLOCATE_REGISTERS OUTPUT X86Program:', x86program)
+        return x86program
+
+    #def allocate_registers(self, p: X86Program, graph: UndirectedAdjList) -> X86Program:
+    def allocate_registers(self, p: X86Program) -> X86Program:
+        p.used_callee = set()
+        return p
+
+    ############################################################################
+    # Assign Homes: x86var -> x86var
+    ############################################################################
+    """
+    def extract_var(self, p: X86Program) -> variables: Set[location]:
+        print('EXTRACT_VAR INPUT x86Program:', p)
+
+        match p:
+            case X86Program(program):
+                for i in program:
+                    var
+
+            case _:
+                raise Exception('Error: extract_var case not yet implemented.')
+
+        print('EXTRACT_VAR OUTPUT variables:', variables)
+        return variables
+    """
+
+    """
+    def assign_homes_arg(self, a: arg, home: Dict[Variable, arg]) -> arg:
+        '''
+        trip to x86 chapter 1 and 2 section 2.6 assign homes.
+        '''
+        print('ASSIGN_HOMES_ARG INPUT arg home:', a, home)
+        argument = None
+
+        match a:
+            case Variable(arg):
+                if not (Variable(arg) in home.keys()):
+                    self.stack_space -= 8
+                    home.update({Variable(arg): Deref('rbp', self.stack_space)})
+                argument = home[Variable(arg)]
+
+            case _:
+                raise Exception('Error: Compiler.assign_homes_arg case not yet implemented.')
+
+        print('ASSIGN_HOMES_ARG OUTPUT arg:', argument)
+        return argument
+    """
+
     """
     def assign_homes(self, p: X86Program) -> X86Program:
         '''
@@ -779,7 +802,7 @@ class Compiler:
                 var_color, var_spilled = self.color_graph(graph, set())
                 x86program = self.allocate_registers(p, graph)
                 ### BUE ###
-                
+
 
                 # simple register allocaltion version:
                 l_inst = []
@@ -807,9 +830,14 @@ class Compiler:
         l_inst = []
 
         match i:
-            case Instr('movq', [Deref(reg1, arg1), Deref(reg2, arg2)]):
-                l_inst.append( Instr('movq', [Deref(reg1, arg1), Reg('rax')]) )
-                l_inst.append( Instr('movq', [Reg('rax'), Deref(reg2, arg2)]) )
+            case Instr('movq', [mem1, mem2]):
+                if mem1 != mem2:  # jump over trivial moves
+                    match i:
+                        case Instr('movq', [Deref(reg1, arg1), Deref(reg2, arg2)]):
+                            l_inst.append( Instr('movq', [Deref(reg1, arg1), Reg('rax')]) )
+                            l_inst.append( Instr('movq', [Reg('rax'), Deref(reg2, arg2)]) )
+                        case _:
+                            l_inst.append(i)
 
             case Instr('subq', [Deref(reg1, arg1), Deref(reg2, arg2)]):
                 l_inst.append( Instr('movq', [Deref(reg1, arg1), Reg('rax')]) )
@@ -872,17 +900,41 @@ class Compiler:
 
         match p:
             case X86Program(prog):
-                frame_space = align(n = -(self.stack_space), alignment=16)
+                # calculate memory need
+                #frame_space = align(n = -(self.stack_space), alignment=16)
+                frame_space = align(
+                    n = 8 * (self.i_spilled + len(self.used_callee) + 1),
+                    alignment = 16
+                )
+
                 prelude = [
+                    # stor base pointer
                     Instr('pushq', [Reg('rbp')]),
+                    # reserve memory
                     Instr('movq', [Reg('rsp'), Reg('rbp')]),
                     Instr('subq', [Immediate(frame_space), Reg('rsp')]),
                 ]
-                conclusion = [
+                for i, register in enumerate(sorted(self.used_callee)):
+                    # stor callee saved register
+                    prelude.append(
+                        Instr('movq', [Reg(register),  frame_space + ((i + 1) * 8 )])
+                    )
+
+                conclusion = []
+                for i, register in enumerate(sorted(self.used_callee)):
+                    # recall callee saved register
+                    conclusion.append(
+                        Instr('movq', [frame_space + ((i + 1) * 8 ), Reg(register)])
+                    )
+                conclusion.extend([
+                    # free memory
                     Instr('addq', [Immediate(frame_space), Reg('rsp')]),
+                    # recall base pointer
                     Instr('popq', [Reg('rbp')]),
+                    # retun ctrl to os
                     Instr('retq', []),
-                ]
+                ])
+
                 x86program = X86Program(prelude + prog + conclusion)
 
             case _:
