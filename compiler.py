@@ -562,7 +562,7 @@ class Compiler:
 
 
     ############################################################################
-    # Assign Homes: x86var -> x86var
+    # Color Graph
     ############################################################################
 
     # Returns the coloring and the set of spilled variables.
@@ -630,6 +630,10 @@ class Compiler:
         return (doi_color, eo_spilled)
 
 
+    ############################################################################
+    # Allocate Register
+    ############################################################################
+
     def assign_homes_arg(self, a: arg, home: Dict[Variable, arg]) -> arg:
         '''
         trip to x86 chapter 1 and 2 section 2.6 assign homes.
@@ -693,6 +697,7 @@ class Compiler:
 
 
 
+    #def allocate_registers(self, p: X86Program, graph: UndirectedAdjList) -> X86Program:
     def assign_homes(self, p: X86Program) -> X86Program:
         print('ALLOCATE_REGISTERS INPUT X86Program:', p)
 
@@ -701,24 +706,21 @@ class Compiler:
         match p:
             case X86Program(program):
 
-                # graph coloring register allocation version:
+                # graph coloring
                 live_after, variables = self.uncover_live(p)
                 graph = self.build_interference(p, live_after)
                 var_to_color, var_spilled = self.color_graph(graph, variables)
 
-                # get complete color to memory mapping
-                d_color_to_memory = color_to_mem.copy()
+                # variable to memory mapping register and spilled
+                d_var_to_memory = {}
                 self.stack_space = 0
+                for var, i_color in var_to_color.items():
+                    d_var_to_memory.update({var : color_to_mem[i_color]})
                 for var in var_spilled:
                     self.stack_space -= 8
-                    d_color_to_memory.update({var: Deref('rbp', self.stack_space)})
+                    d_var_to_memory.update({var : Deref('rbp', self.stack_space)})
 
-                # generate
-                d_var_to_memory = {}
-                for var, i_color in var_to_color.items():
-                    d_var_to_memory.update({var : d_color_to_memory[i_color]})
-
-                # translate x86var to x86 (self.assign_homes_instr)
+                # translate x86var to x86
                 l_inst = []
                 self.stack_space = 0
                 for i in program:
@@ -726,7 +728,7 @@ class Compiler:
                     l_inst.append(instruction)
                 x86program = X86Program(l_inst)
 
-                # bue: how to add an ast filed?
+                # bue: how to add an ast field?
                 self.i_spilled = len(var_spilled)
                 self.used_callee = set(var_to_color.keys()).intersection(e_callee_saved)
                 print('spilled and callee:', self.i_spilled, self.used_callee)
@@ -737,10 +739,6 @@ class Compiler:
         print('ALLOCATE_REGISTERS OUTPUT X86Program:', x86program)
         return x86program
 
-    #def allocate_registers(self, p: X86Program, graph: UndirectedAdjList) -> X86Program:
-    def allocate_registers(self, p: X86Program) -> X86Program:
-        p.used_callee = set()
-        return p
 
     ############################################################################
     # Assign Homes: x86var -> x86var
