@@ -30,16 +30,20 @@ e_callee_saved = {
     Reg('r12'), Reg('r13'), Reg('r14'), Reg('r15'),
 }
 
-color_map = {
+color_to_reg = {
     0 : Reg('rcx'), 1 : Reg('rdx'), 2 : Reg('rsi'), 3: Reg('rdi'),
     4 : Reg('r8'), 5 : Reg('r9'), 6 : Reg('r10'), 7 : Reg('rbx'),
     8 : Reg('r12'), 9 : Reg('r13'), 10 : Reg('14'),
 }
 
-non_color = {
+reg_to_noncolor = {
     Reg('rax') : -1, Reg('rsp') : -2, Reg('rbp') : -3, Reg('r11') : -4,
     Reg('r15') : -5,
 }
+
+color_to_mem = color_to_reg.copy()
+for key, value in reg_to_noncolor.items():
+    color_to_mem.update({value : key})
 
 
 # functions
@@ -440,12 +444,11 @@ class Compiler:
                e_read.add(Variable(arg2))
 
             # callq
-            case Callq('print', value):  # read form e_caller_saved register
-                #if value > len(e_callee_saved):
-                #    raise Exception(f'Error: Compiler.read_vars callq case for functions with > {len(e_callee_saved)} arguments not yet implemented.')
-                #for reg in e_callee_saved:
-                #   e_read.add(reg)
-                e_read.add(Reg('rdi'))
+            case Callq('print', value):  # read form e_caller_saved function register
+                if value > len(l_func):
+                    raise Exception(f'Error: Compiler.read_vars callq case for functions with > {len(l_func)} arguments not yet implemented.')
+                for n in range(value):
+                    e_read.add(Reg(l_func[n]))
 
             case _:
                 pass
@@ -477,7 +480,7 @@ class Compiler:
                 e_write.add(Variable(arg2))
 
             # callq
-            case Callq('read_int', value):  # write in e_caller_saved registers
+            case Callq('read_int', value):  # write in e_caller_saved function registers
                 if value > len(l_func):
                     raise Exception(f'Error: Compiler.write_vars callq case for functions with > {len(l_func)} arguments not yet implemented.')
                 for n in range(value):
@@ -538,9 +541,9 @@ class Compiler:
                                 for var in live_after[i]:
                                     g.add_edge(dst, var)
 
-                        case Inst('movq', [src, dst]):
+                        case Instr('movq', [src, dst]):
                             for var in live_after[i]:
-                                if (var != dst) and (var != src):
+                                if (var != src) and (var != dst):
                                     g.add_edge(dst, var)
 
                         case _:
@@ -563,10 +566,10 @@ class Compiler:
 
     # Returns the coloring and the set of spilled variables.
     def color_graph(self, graph: UndirectedAdjList, variables: Set[location]) -> Tuple[Dict[location, int], Set[location]]:
-        print('COLOR_GRAPH INPUT:')
+        print('COLOR_GRAPH INPUT graph variables:', graph, variables)
 
         # get color inetger
-        ei_rainbow = set(color_map.keys())
+        ei_rainbow = set(color_to_reg.keys())
 
         # get spilled var set
         eo_spilled = set()
@@ -596,18 +599,24 @@ class Compiler:
             # pop most saturated value
             o_var = pqueue.pop()
 
-            # get lowest color not adjacent
-            # if necessary, update rainbow with spoilled color
-            ei_colorpot = ei_rainbow.difference(doe_satur[o_var])
-            if len(ei_colorpot) != 0:
-                i_color = min(ei_colorpot)
-            else:
-                i_color = max(ei_rainbow) + 1
-                ei_rainbow.add(i_color)
+            # check for non color register
+            try:
+                i_color = reg_to_noncolor[o_var]
 
-            # update spilled varuiable set
-            if i_color >= len(color_map):
-                eo_spilled.add(o_var)
+            # choose color
+            except KeyError:
+                # get lowest color not adjacent
+                # if necessary, update rainbow with spilled color
+                ei_colorpot = ei_rainbow.difference(doe_satur[o_var])
+                if len(ei_colorpot) != 0:
+                    i_color = min(ei_colorpot)
+                else:
+                    i_color = max(ei_rainbow) + 1
+                    ei_rainbow.add(i_color)
+
+                # update spilled variable set
+                if i_color >= len(color_to_reg):
+                    eo_spilled.add(o_var)
 
             # color variable
             doi_color.update({o_var : i_color})
@@ -620,15 +629,71 @@ class Compiler:
         return (doi_color, eo_spilled)
 
 
-    def allocate_registers(self, p: X86Program, graph: UndirectedAdjList) -> X86Program:
-        print('ALLOCATE_REGISTERS INPUT:', ast.dump(p))
-        print('ALLOCATE_REGISTERS OUTPUT:')
+    def assign_homes_arg(self, a: arg, home: Dict[Variable, arg]) -> arg:
+        '''
+        trip to x86 chapter 1 and 2 section 2.6 assign homes.
+        '''
+        print('ASSIGN_HOMES_ARG INPUT arg home:', a, home)
+        argument = None
+
+        match a:
+            case Variable(arg):
+                argument = home[Variable(arg)]
+
+            case _:
+                raise Exception('Error: Compiler.assign_homes_arg case not yet implemented.')
+
+        print('ASSIGN_HOMES_ARG OUTPUT arg:', argument)
+        return argument
+
+
+    #def allocate_registers(self, p: X86Program, graph: UndirectedAdjList) -> X86Program:
+    def assign_homes(self, p: X86Program) -> X86Program:
+        print('ALLOCATE_REGISTERS INPUT:', p)
+
+        x86program = None
+
+        match p:
+            case X86Program(program):
+
+                # graph coloring register allocation version:
+                live_after = self.uncover_live(p)
+                graph = self.build_interference(p, live_after)
+                variables = set() # self.(p)
+                var_to_color, var_spilled = self.color_graph(graph, variables)
+
+                # get complete color to memory mapping
+                d_color_to_memory = color_to_mem.copy()
+                self.stack_space = 0
+                for var in var_spilled:
+                    self.stack_space -= 8
+                    d_color_to_memory.update({var: Deref('rbp', self.stack_space)})
+
+                # generate 
+                d_var_to_memory = {}
+                for var, i_color in var_to_color.items():
+                    d_var_to_memory.update({var : d_color_to_memory[i_color]})
+                
+                # translate x86var to x86 (self.assign_homes_instr)
+                l_inst = []
+                self.stack_space = 0
+                for i in program:
+                    instruction = self.assign_homes_instr(i, d_var_to_memory)
+                    l_inst.append(instruction)
+                x86program = X86Program(l_inst)
+
+            case _:
+                raise Exception('Error: Compiler.assign_homes case not yet implemented.')
+
+        print('ALLOCATE_REGISTERS OUTPUT X86Program:', x86program)
+        return x86program
 
 
     ############################################################################
     # Assign Homes: x86var -> x86var
     ############################################################################
 
+    """
     def assign_homes_arg(self, a: arg, home: Dict[Variable, arg]) -> arg:
         '''
         trip to x86 chapter 1 and 2 section 2.6 assign homes.
@@ -648,6 +713,7 @@ class Compiler:
 
         print('ASSIGN_HOMES_ARG OUTPUT arg:', argument)
         return argument
+    """
 
 
     def assign_homes_instr(self, i: instr, home: Dict[Variable, arg]) -> instr:
@@ -694,6 +760,7 @@ class Compiler:
         return instruction
 
 
+    """
     def assign_homes(self, p: X86Program) -> X86Program:
         '''
         trip to x86 chapter 1 and 2 section 2.6 assign homes.
@@ -704,11 +771,15 @@ class Compiler:
         match p:
             case X86Program(program):
 
+                ### BUE ###
                 # graph coloring register allocation version:
                 live_after = self.uncover_live(p)
                 graph = self.build_interference(p, live_after)
                 #variables = self.(p)
-                self.color_graph(graph, set())
+                var_color, var_spilled = self.color_graph(graph, set())
+                x86program = self.allocate_registers(p, graph)
+                ### BUE ###
+                
 
                 # simple register allocaltion version:
                 l_inst = []
@@ -725,7 +796,7 @@ class Compiler:
 
         print('ASSIGN_HOMES OUTPUT X86Program:', x86program)
         return x86program
-
+    """
 
     ############################################################################
     # Patch Instructions: x86var -> x86int
