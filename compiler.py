@@ -30,6 +30,8 @@ e_callee_saved = {
     Reg('r12'), Reg('r13'), Reg('r14'), Reg('r15'),
 }
 
+e_register = e_caller_saved.union(e_callee_saved)
+
 color_to_reg = {
     0 : Reg('rcx'), 1 : Reg('rdx'), 2 : Reg('rsi'), 3: Reg('rdi'),
     4 : Reg('r8'), 5 : Reg('r9'), 6 : Reg('r10'), 7 : Reg('rbx'),
@@ -42,9 +44,9 @@ reg_to_noncolor = {
 }
 
 color_to_mem = color_to_reg.copy()
-for key, value in reg_to_noncolor.items():
-    color_to_mem.update({value : key})
+color_to_mem.update({value : key for key, value in reg_to_noncolor.items()})
 
+mem_to_color = {value : key for key, value in color_to_mem.items()}
 
 # functions
 
@@ -444,13 +446,11 @@ class Compiler:
                e_read.add(Variable(arg2))
 
             # callq
-            case Callq('print', [value]):  # read form e_caller_saved function register
-                if value > len(l_func):
-                    raise Exception(f'Error: Compiler.read_vars callq case for functions with > {len(l_func)} arguments not yet implemented.')
-                for n in range(value):
-                    e_read.add(Reg(l_func[n]))
+            case Callq('print', i_parameter):  # read form e_caller_saved function register
+                 for n in range(i_parameter):
+                     e_read.add(Reg(l_func[n]))
 
-            case _:
+            case _:  # callq read_int
                 pass
 
         print('READ_VARS OUTPUT:', e_read)
@@ -480,11 +480,9 @@ class Compiler:
                 e_write.add(Variable(arg2))
 
             # callq
-            case Callq('read_int', [value]):  # write in e_caller_saved function registers
-                if value > len(l_func):
-                    raise Exception(f'Error: Compiler.write_vars callq case for functions with > {len(l_func)} arguments not yet implemented.')
-                for n in range(value):
-                    e_write.add(Reg(l_func[n]))
+            case Callq('read_int', i_parameter):  # write into e_caller_saved function registers
+                    for register in e_callee_saved:
+                        e_write.add(register)
 
             case _:
                 pass
@@ -535,10 +533,16 @@ class Compiler:
             case X86Program(body):
 
                 g = UndirectedAdjList()
+
+                # add all registers to the graph
+                for register in e_register:
+                    g.add_vertex(register)
+
+                # walk through the program instructuons
                 for i in body:
                     match i:
-                        case Callq(command, []):  # bue: print read_int
-                            for dst in e_caller_saved:  # bue: why are this not only the l_func ones?
+                        case Callq(command, numparameters):  # print read_int
+                            for dst in e_caller_saved:  # bue: maybe coved by case _ ?!
                                 for var in live_after[i]:
                                     g.add_edge(dst, var)
 
@@ -591,11 +595,11 @@ class Compiler:
     # Color Graph
     ############################################################################
 
-    # Returns the coloring and the set of spilled variables.
+    # returns the coloring and the set of spilled variables.
     def color_graph(self, graphi: UndirectedAdjList, variables: Set[location]) -> Tuple[Dict[location, int], Set[location]]:
         print('COLOR_GRAPH INPUT graphi, graphm, variables:', graphi, variables)
 
-        # get color inetger
+        # get color integer
         ei_rainbow = set(color_to_reg.keys())
 
         # get spilled var set
@@ -608,11 +612,15 @@ class Compiler:
         doi_color = {}
         for o_var in variables:
             doi_color.update({o_var : None})
+        for o_mem, i_color in mem_to_color.items():
+            doi_color.update({o_mem : i_color})
 
         # get satutration dictionary
         doe_satur = {}
         for o_var in variables:
             doe_satur.update({o_var : set()})
+        for o_mem in mem_to_color.keys():
+            doe_satur.update({o_mem : set()})
 
         # build priority queue
         def less(x, y):
@@ -757,7 +765,7 @@ class Compiler:
 
                 # bue: how to add an ast field?
                 self.i_spilled = len(var_spilled)
-                self.used_callee = set(var_to_color.keys()).intersection(e_callee_saved)
+                self.used_callee = list(set(var_to_color.keys()).intersection(e_callee_saved))
                 print('spilled and callee:', self.i_spilled, self.used_callee)
 
             case _:
@@ -928,7 +936,7 @@ class Compiler:
                 # calculate memory need
                 #frame_space = align(n = -(self.stack_space), alignment=16)
                 frame_space = align(
-                    n = 8 * (self.i_spilled + len(self.used_callee) + 1),
+                    n = 8 * (self.i_spilled + len(self.used_callee)),
                     alignment = 16
                 )
 
@@ -939,17 +947,18 @@ class Compiler:
                     Instr('movq', [Reg('rsp'), Reg('rbp')]),
                     Instr('subq', [Immediate(frame_space), Reg('rsp')]),
                 ]
-                for i, register in enumerate(sorted(self.used_callee)):
+                #print("BUE:", [type(n) for n in self.used_callee])
+                for n, register in enumerate(self.used_callee):
                     # stor callee saved register
                     prelude.append(
-                        Instr('movq', [Reg(register),  frame_space + ((i + 1) * 8 )])
+                        Instr('movq', [register,  frame_space + ((n + 1) * 8 )])
                     )
 
                 conclusion = []
-                for i, register in enumerate(sorted(self.used_callee)):
+                for n, register in enumerate(self.used_callee):
                     # recall callee saved register
                     conclusion.append(
-                        Instr('movq', [frame_space + ((i + 1) * 8 ), Reg(register)])
+                        Instr('movq', [frame_space + ((n + 1) * 8 ), register])
                     )
                 conclusion.extend([
                     # free memory
