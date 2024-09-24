@@ -561,13 +561,39 @@ class Compiler:
         return g
 
 
+    def build_movegraph(self, p: X86Program) -> UndirectedAdjList:
+        '''
+        register allocation chapter 2 section 4.7 move biasing
+        '''
+        print('BUILD_MOVEGRAPH INPUT:', p)
+        g = None
+
+        match p:
+            case X86Program(body):
+
+                g = UndirectedAdjList()
+                for i in body:
+                    match i:
+                        case Instr('movq', [Reg(src), Reg(dst)]) | Instr('movq', [Reg(src), Variable(dst)]) | Instr('movq', [Variable(src), Reg(dst)]) | Instr('movq', [Variable(src), Variable(dst)]):
+                            g.add_edge(src,dst)
+
+                        case _:
+                            pass
+
+            case _:
+                raise Exception('Error: Compiler.build_movegraph case not yet implemented.')
+
+        print('BUILD_MOVEGRAPH OUTPUT:', g.show())
+        return g
+
+
     ############################################################################
     # Color Graph
     ############################################################################
 
     # Returns the coloring and the set of spilled variables.
-    def color_graph(self, graph: UndirectedAdjList, variables: Set[location]) -> Tuple[Dict[location, int], Set[location]]:
-        print('COLOR_GRAPH INPUT graph variables:', graph, variables)
+    def color_graph(self, graphi: UndirectedAdjList, variables: Set[location]) -> Tuple[Dict[location, int], Set[location]]:
+        print('COLOR_GRAPH INPUT graphi, graphm, variables:', graphi, variables)
 
         # get color inetger
         ei_rainbow = set(color_to_reg.keys())
@@ -576,7 +602,7 @@ class Compiler:
         eo_spilled = set()
 
         # extract variable objects from graph
-        w = set(graph.vertices())
+        w = set(graphi.vertices())
 
         # get var color integer mapping
         doi_color = {}
@@ -623,7 +649,7 @@ class Compiler:
             doi_color.update({o_var : i_color})
 
             # update saturation
-            for o_adj in graph.adjacent(o_var):
+            for o_adj in graphi.adjacent(o_var):
                 doe_satur[o_adj].add(i_color)
 
         print('COLOR_GRAPH OUTPUT dict coloring and set spilled var:', doi_color, eo_spilled)
@@ -708,8 +734,9 @@ class Compiler:
 
                 # graph coloring
                 live_after, variables = self.uncover_live(p)
-                graph = self.build_interference(p, live_after)
-                var_to_color, var_spilled = self.color_graph(graph, variables)
+                graphi = self.build_interference(p, live_after)
+                graphm = self.build_movegraph(p)
+                var_to_color, var_spilled = self.color_graph(graphi, variables)  # graphm
 
                 # variable to memory mapping register and spilled
                 d_var_to_memory = {}
