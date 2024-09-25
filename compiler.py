@@ -480,7 +480,8 @@ class Compiler:
                 e_write.add(Variable(arg2))
 
             # callq
-            case Callq('read_int', i_parameter):  # write into e_caller_saved function registers
+            #case Callq('read_int', i_parameter):  # write into e_caller_saved function registers
+            case Callq(command, i_parameter):  # write into e_caller_saved function registers
                     for register in e_callee_saved:
                         e_write.add(register)
 
@@ -541,10 +542,10 @@ class Compiler:
                 # walk through the program instructuons
                 for i in body:
                     match i:
-                        case Callq(command, numparameters):  # print read_int
-                            for dst in e_caller_saved:  # bue: maybe coved by case _ ?!
-                                for var in live_after[i]:
-                                    g.add_edge(dst, var)
+                        #case Callq(command, i_parameter):  # print read_int
+                        #    for dst in e_caller_saved:  # bue: maybe coved by case _ ?!
+                        #        for var in live_after[i]:
+                        #            g.add_edge(dst, var)
 
                         case Instr('movq', [src, dst]):
                             for var in live_after[i]:
@@ -561,7 +562,7 @@ class Compiler:
             case _:
                 raise Exception('Error: Compiler.build_interference case not yet implemented.')
 
-        print('BUILD_INTERFERENCE OUTPUT:', g.show())
+        #print('BUILD_INTERFERENCE OUTPUT:', g.show())
         return g
 
 
@@ -587,7 +588,7 @@ class Compiler:
             case _:
                 raise Exception('Error: Compiler.build_movegraph case not yet implemented.')
 
-        print('BUILD_MOVEGRAPH OUTPUT:', g.show())
+        #print('BUILD_MOVEGRAPH OUTPUT:', g.show())
         return g
 
 
@@ -699,7 +700,7 @@ class Compiler:
 
             case Instr(command, [Variable(arg)]):  # v
                 arg_var1 = self.assign_homes_arg(Variable(arg), home)
-                instruction = Instr(command, [arg_var])
+                instruction = Instr(command, [arg_var1])
 
             case Instr(command, [Immediate(arg1), Variable(arg2)]):  # iv
                 arg_var2 = self.assign_homes_arg(Variable(arg2), home)
@@ -951,14 +952,14 @@ class Compiler:
                 for n, register in enumerate(self.used_callee):
                     # stor callee saved register
                     prelude.append(
-                        Instr('movq', [register,  frame_space + ((n + 1) * 8 )])
+                        Instr('movq', [register,  Deref('rbp', - frame_space + ((n + 1) * 8 ))])
                     )
 
                 conclusion = []
                 for n, register in enumerate(self.used_callee):
                     # recall callee saved register
                     conclusion.append(
-                        Instr('movq', [frame_space + ((n + 1) * 8 ), register])
+                        Instr('movq', [Deref('rbp', -frame_space + ((n + 1) * 8 )), register])
                     )
                 conclusion.extend([
                     # free memory
