@@ -23,7 +23,7 @@ e_reg_caller_saved = set(l_reg_func).union({Reg('rax'), Reg('r10'), Reg('r11')})
 e_reg_callee_saved = {Reg('rsp'), Reg('rbp'), Reg('rbx'), Reg('r12'), Reg('r13'), Reg('r14'), Reg('r15')}
 e_reg = e_reg_caller_saved.union(e_reg_callee_saved)
 
-noncolor_to_reg = { -1 : Reg('rax'), -2 : Reg('rsp'), -3 : Reg('rbp'), -4 : Reg('r11'), -5 : Reg('r15') : -5 }
+noncolor_to_reg = { -1 : Reg('rax'), -2 : Reg('rsp'), -3 : Reg('rbp'), -4 : Reg('r11'), -5 : Reg('r15')}
 color_to_reg = {
     0 : Reg('rcx'), 1 : Reg('rdx'), 2 : Reg('rsi'), 3: Reg('rdi'),
     4 : Reg('r8'), 5 : Reg('r9'), 6 : Reg('r10'), 7 : Reg('rbx'),
@@ -282,7 +282,7 @@ class Compiler:
             case If(exp, ifstmt, elstmt):  # Lif
                 # BUE
                 pass
-t
+
             case _:
                 raise Exception('Error: Compiler.rco_stmt case not yet implemented.')
 
@@ -771,10 +771,10 @@ t
                 # variable to memory mapping register and spilled
                 d_var_to_memory = {}
                 self.stack_space = 0
-                for var in set(var_to_color.keys()).diffrence(e_var_spilled)
+                for var in set(var_to_color.keys()).diffrence(e_var_spilled):
                     d_var_to_memory.update({var : color_to_mem[d_var_to_color[var]]})
 
-		for var in e_var_spilled:
+                for var in e_var_spilled:
                     self.stack_space -= 8
                     d_var_to_memory.update({var : Deref('rbp', self.stack_space)})
 
