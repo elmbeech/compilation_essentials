@@ -135,54 +135,54 @@ class Compiler:
     ###########################################################################
     # chapter 5 section 5.5 shrink the Lif language
 
-    def shrink_exp(self, e: expr) -> expr:
-        print('SHRINK_EXP INPUT expr:', e)
-        match e:
-            case Constant(value):  # Lif; always leaf
-                exp = BUE
-                print('SHRINK_EXP OUTPUT atom:', exp)
-                return exp
+#    def shrink_exp(self, e: expr) -> expr:
+#        print('SHRINK_EXP INPUT expr:', e)
+#        match e:
+#            case Constant(value):  # Lif; always leaf
+#                exp = BUE
+#                print('SHRINK_EXP OUTPUT atom:', exp)
+#                return exp
 
-            case _:
-                raise Exception('Error: Compiler.shrink_exp case not yet implemented.')
+#            case _:
+#                raise Exception('Error: Compiler.shrink_exp case not yet implemented.')
 
-        print('SHRINK_STMT OUTPUT l_stmt:', l_stmt)
-        return l_stmt
+#        print('SHRINK_STMT OUTPUT l_stmt:', l_stmt)
+#        return l_stmt
 
 
-    def shrink_stmt(self, s: stmt) -> List[stmt]:
-        print('SHRINK_STMT INPUT stmt:', ast.dump(s))
-        l_stmt = None
+#    def shrink_stmt(self, s: stmt) -> List[stmt]:
+#        print('SHRINK_STMT INPUT stmt:', ast.dump(s))
+#        l_stmt = None
 
-        match s:
-            case Expr(Call(Name('print'), [exp])):  # Lif
+#        match s:
+#            case Expr(Call(Name('print'), [exp])):  # Lif
                 #newexp, l_tmp =  self.shrink_exp(exp, True)
-                newexp = exp
-                l_stmt = [Assign([varc], expc) for varc, expc in l_tmp] + [Expr(Call(Name('print'), [newexp]))]
+#                newexp = exp
+#                l_stmt = [Assign([varc], expc) for varc, expc in l_tmp] + [Expr(Call(Name('print'), [newexp]))]
 
-            case _:
-                raise Exception('Error: Compiler.shrink_stmt case not yet implemented.')
+#            case _:
+#                raise Exception('Error: Compiler.shrink_stmt case not yet implemented.')
 
-        print('SHRINK_STMT OUTPUT l_stmt:', l_stmt)
-        return l_stmt
+#        print('SHRINK_STMT OUTPUT l_stmt:', l_stmt)
+#        return l_stmt
 
 
-    def shrink(self, p: Module) -> Module:
-        print('SHRINK INPUT module :', p)
-        module = None
-        match p:
-            case Module(body):  # Lif
-                l_stmt = []
-                for stmt in body:
+#    def shrink(self, p: Module) -> Module:
+#        print('SHRINK INPUT module :', p)
+#        module = None
+#        match p:
+#            case Module(body):  # Lif
+#                l_stmt = []
+#                for stmt in body:
                     #l_stmt.extend(self.shrink_stmt(stmt))
-                    l_stmt.append(stmt)
-                module = Module(l_stmt)
+#                    l_stmt.append(stmt)
+#                module = Module(l_stmt)
 
-            case _:
-                raise Exception('Error: Compiler.shrink case not yet implemented.')
+#            case _:
+#                raise Exception('Error: Compiler.shrink case not yet implemented.')
 
-        print('SHRINK OUTPUT module :', module)
-        return module
+#        print('SHRINK OUTPUT module :', module)
+#        return module
 
 
     ############################################################################
@@ -616,6 +616,7 @@ class Compiler:
                 g = UndirectedAdjList()
                 for i in body:
                     match i:
+                        #case Instr('movq', [Variable(src), Variable(dst)]):
                         case Instr('movq', [Reg(src), Reg(dst)]) | Instr('movq', [Reg(src), Variable(dst)]) | Instr('movq', [Variable(src), Reg(dst)]) | Instr('movq', [Variable(src), Variable(dst)]):
                             g.add_edge(src,dst)
 
@@ -630,8 +631,8 @@ class Compiler:
 
 
     # returns the coloring and the set of spilled variables.
-    def color_graph(self, graphi: UndirectedAdjList, variables: Set[location]) -> Tuple[Dict[location, int], Set[location]]:
-        print('COLOR_GRAPH INPUT graphi, graphm, variables:', graphi, variables)
+    def color_graph(self, graphi: UndirectedAdjList, graphm: UndirectedAdjList, variables: Set[location]) -> Tuple[Dict[location, int], Set[location]]:
+        print('COLOR_GRAPH INPUT graphi, graphm, variables:', graphi, graphm, variables)
 
         # get color integer
         ei_rainbow = set(color_to_reg.keys())
@@ -649,7 +650,7 @@ class Compiler:
         for o_mem, i_color in mem_to_color.items():
             doi_color.update({o_mem : i_color})
 
-        # get satutration dictionary
+        # get saturation dictionary
         doe_satur = {}
         for o_var in variables:
             doe_satur.update({o_var : set()})
@@ -659,6 +660,24 @@ class Compiler:
         # build priority queue
         def less(x, y):
             return len(doe_satur[x.key]) < len(doe_satur[y.key])
+
+        def more(x, y):
+            if len(doe_satur[x.key]) ==  len(doe_satur[y.key]):
+                # update surrounding color
+                doe_colorm = {}
+                for o_node in {x.key, y.key}:
+                    doe_colorm.update({o_node : set()})
+                    for o_adj in graphm.adjacent(o_node):
+                        try:
+                            i_color = doi_color[o_adj]
+                            if (i_color != None):
+                                doe_colorm[o_node].add(doi_color[o_adj])
+                        except KeyError:
+                            pass
+                print('BUE:', doe_colorm)
+                return len(doe_colorm[x.key].difference(doe_satur[x.key])) <= len(doe_colorm[y.key].difference(doe_satur[y.key]))
+            else:
+                return len(doe_satur[x.key]) < len(doe_satur[y.key])
         pqueue = PriorityQueue(less)
         for o_var, e_satur in doe_satur.items():
             pqueue.push(o_var)
@@ -760,14 +779,14 @@ class Compiler:
         return instruction
 
 
-    def allocate_registers(self, p: X86Program, graphi: UndirectedAdjList, variables:  Set[Variable]) -> X86Program:
-        print('ALLOCATE_REGISTERS INPUT X86Program, graph, variables:', p, graphi, variables)
+    def allocate_registers(self, p: X86Program, graphi: UndirectedAdjList, graphm: UndirectedAdjList, variables:  Set[Variable]) -> X86Program:
+        print('ALLOCATE_REGISTERS INPUT X86Program, graph, variables:', p, graphi, graphm, variables)
         x86program = None
 
         match p:
             case X86Program(program):
                 # graph coloring
-                d_var_to_color, e_var_spilled = self.color_graph(graphi, variables)  # graphm
+                d_var_to_color, e_var_spilled = self.color_graph(graphi, graphm, variables)
 
                 # variable to memory mapping register and spilled
                 d_var_to_memory = {}
@@ -786,7 +805,7 @@ class Compiler:
                     l_inst.append(instruction)
                 x86program = X86Program(l_inst)
 
-                # bue: how to add an ast field? am going global.
+                # bue: how to add an ast field? am going instance global!
                 self.i_spilled = len(e_var_spilled)
                 self.used_callee = list(set(d_var_to_color.keys()).intersection(e_reg_callee_saved))
                 print('spilled and callee:', self.i_spilled, self.used_callee)
@@ -807,7 +826,7 @@ class Compiler:
                 live_after, variables = self.uncover_live(p)
                 graphi = self.build_interference(p, live_after)
                 graphm = self.build_movegraph(p)
-                x86program = self.allocate_registers(p, graphi, variables)
+                x86program = self.allocate_registers(p, graphi, graphm, variables)
 
             case _:
                 raise Exception('Error: Compiler.assign_homes case not yet implemented.')
