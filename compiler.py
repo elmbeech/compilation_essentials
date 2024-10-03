@@ -142,10 +142,10 @@ class Compiler:
         match b:
             case And():
                 # Constant(True) And() Constant(True)
-                newexp = IfExp(e2, e1, False)
+                newexp = Expr(IfExp(e2, e1, False))
 
             case Or():
-                newexp = IfExp(True, e1, e2) 
+                newexp = Expr(IfExp(True, e1, e2))
 
             case _:
                 raise Exception('Error: Compiler.shrink_exp case not yet implemented.')
@@ -157,7 +157,7 @@ class Compiler:
     def shrink_stmt(self, s: stmt) -> stmt:
         print('SHRINK_STMT INPUT s:', ast.dump(s))
         stm = None
- 
+
         match s:
             case Expr(BoolOp(boolop, [exp1, exp2])):
                 newexp = self.shrink_exp(boolop, exp1, exp2)
@@ -211,20 +211,19 @@ class Compiler:
                 print('RCO_EXP OUTPUT input_int atom:', (inputint, []))
                 return (inputint, [])
 
-        #case Compare(ifcase, [cmp], [elcase]):  # Lif
-        #    # BUE
-        #    pass
-
-        #case IfExp(ifcase, exp, elcase):  # Lif
+            #case Compare(ifcase, [cmp], [elcase]):  # Lif
                 # BUE
-        #    pass
+            #   pass
 
-        #case Begin():  # Lif
+            #case IfExp(ifcase, exp, elcase):  # Lif
                 # BUE
-        #    pass
+            #   pass
+
+            #case Begin():  # Lif
+                # BUE
+            #   pass
 
             case UnaryOp(Not(), operand): # Lif
-                # BUE
                 if need_atomic:
                     tmp = Name(generate_name('tmp'))
                     print('RCO_EXP OUTPUT not complex:', (tmp, l_tmp + [(tmp, nnot)]))
