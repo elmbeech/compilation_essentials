@@ -135,55 +135,56 @@ class Compiler:
     ###########################################################################
     # chapter 5 section 5.5 shrink the Lif language
 
-#    def shrink_exp(self, e: expr) -> expr:
-#        print('SHRINK_EXP INPUT expr:', e)
-#        match e:
-#            case Constant(value):  # Lif; always leaf
-#                exp = BUE
-#                print('SHRINK_EXP OUTPUT atom:', exp)
-#                return exp
+    def shrink_exp(self, b: expr, e1: expr, e2: expr) -> expr:
+        print('SHRINK_EXP INPUT expr:', b, e1, e2)
+        newexp = None
 
-#            case _:
-#                raise Exception('Error: Compiler.shrink_exp case not yet implemented.')
+        match b:
+            case And():
+                # Constant(True) And() Constant(True)
+                newexp = IfExp(e2, e1, False)
 
-#        print('SHRINK_STMT OUTPUT l_stmt:', l_stmt)
-#        return l_stmt
+            case Or():
+                newexp = IfExp(True, e1, e2) 
 
+            case _:
+                raise Exception('Error: Compiler.shrink_exp case not yet implemented.')
 
-#    def shrink_stmt(self, s: stmt) -> List[stmt]:
-#        print('SHRINK_STMT INPUT stmt:', ast.dump(s))
-#        l_stmt = None
-
-#        match s:
-#            case Expr(Call(Name('print'), [exp])):  # Lif
-                #newexp, l_tmp =  self.shrink_exp(exp, True)
-#                newexp = exp
-#                l_stmt = [Assign([varc], expc) for varc, expc in l_tmp] + [Expr(Call(Name('print'), [newexp]))]
-
-#            case _:
-#                raise Exception('Error: Compiler.shrink_stmt case not yet implemented.')
-
-#        print('SHRINK_STMT OUTPUT l_stmt:', l_stmt)
-#        return l_stmt
+        print('SHRINK_EXP OUTPUT expr:', newexp)
+        return newexp
 
 
-#    def shrink(self, p: Module) -> Module:
-#        print('SHRINK INPUT module :', p)
-#        module = None
-#        match p:
-#            case Module(body):  # Lif
-#                l_stmt = []
-#                for stmt in body:
-                    #l_stmt.extend(self.shrink_stmt(stmt))
-#                    l_stmt.append(stmt)
-#                module = Module(l_stmt)
+    def shrink_stmt(self, s: stmt) -> stmt:
+        print('SHRINK_STMT INPUT s:', ast.dump(s))
+        stm = None
+ 
+        match s:
+            case Expr(BoolOp(boolop, [exp1, exp2])):
+                newexp = self.shrink_exp(boolop, exp1, exp2)
+                stm = newexp
 
-#            case _:
-#                raise Exception('Error: Compiler.shrink case not yet implemented.')
+            case _:
+                stm = s
 
-#        print('SHRINK OUTPUT module :', module)
-#        return module
+        print('SHRINK_STMT OUTPUT smt:', stm)
+        return stm
 
+
+    def shrink(self, p: Module) -> Module:
+        print('SHRINK INPUT module :', p)
+        module = None
+        match p:
+            case Module(body):  # Lif
+                l_stm = []
+                for stm in body:
+                    l_stm.append(self.shrink_stmt(stm))
+                module = Module(l_stm)
+
+            case _:
+                raise Exception('Error: Compiler.shrink case not yet implemented.')
+
+        print('SHRINK OUTPUT module :', module)
+        return module
 
     ############################################################################
     # Remove Complex Operands: Lvar -> Lvar mon
@@ -195,6 +196,8 @@ class Compiler:
         print('RCO_EXP INPUT expr need_atomic :', e, need_atomic)
         match e:
             case Constant(value):  # Lint; Lif; always leaf
+                if type(value) == bool:
+                   value = int(value)
                 constant = Constant(value)
                 print('RCO_EXP OUTPUT constant atom:', (constant, []))
                 return (constant, [])
@@ -208,17 +211,17 @@ class Compiler:
                 print('RCO_EXP OUTPUT input_int atom:', (inputint, []))
                 return (inputint, [])
 
-            case Compare(ifcase, [cmp], [elcase]):  # Lif
-                # BUE
-                pass
+        #case Compare(ifcase, [cmp], [elcase]):  # Lif
+        #    # BUE
+        #    pass
 
-            case IfExp(ifcase, exp, elcase):  # Lif
+        #case IfExp(ifcase, exp, elcase):  # Lif
                 # BUE
-                pass
+        #    pass
 
-            case Begin():  # Lif
+        #case Begin():  # Lif
                 # BUE
-                pass
+        #    pass
 
             case UnaryOp(Not(), operand): # Lif
                 # BUE
@@ -291,9 +294,9 @@ class Compiler:
                 newexp, l_tmp = self.rco_exp(exp, True)
                 l_stmt = [Assign([varc], expc) for varc, expc in l_tmp]
 
-            case If(exp, ifstmt, elstmt):  # Lif
+            #case If(exp, ifstmt, elstmt):  # Lif
                 # BUE
-                pass
+            #pass
 
             case _:
                 raise Exception('Error: Compiler.rco_stmt case not yet implemented.')
@@ -678,7 +681,7 @@ class Compiler:
                 return len(doe_colorm[x.key].difference(doe_satur[x.key])) <= len(doe_colorm[y.key].difference(doe_satur[y.key]))
             else:
                 return len(doe_satur[x.key]) < len(doe_satur[y.key])
-        pqueue = PriorityQueue(less)
+        pqueue = PriorityQueue(more)
         for o_var, e_satur in doe_satur.items():
             pqueue.push(o_var)
 
