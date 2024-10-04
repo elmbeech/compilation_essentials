@@ -141,11 +141,10 @@ class Compiler:
 
         match b:
             case And():
-                # Constant(True) And() Constant(True)
-                newexp = Expr(IfExp(e2, e1, False))
+                newexp = IfExp(e1, e2, Constant(False))
 
             case Or():
-                newexp = Expr(IfExp(True, e1, e2))
+                newexp = IfExp(Constant(True), e1, e2)
 
             case _:
                 raise Exception('Error: Compiler.shrink_exp case not yet implemented.')
@@ -195,51 +194,9 @@ class Compiler:
     def rco_exp(self, e: expr, need_atomic : bool) -> Tuple[expr, Temporaries]:
         print('RCO_EXP INPUT expr need_atomic :', e, need_atomic)
         match e:
-            case Constant(value):  # Lint; Lif; always leaf
-                if type(value) == bool:
-                   value = int(value)
-                constant = Constant(value)
-                print('RCO_EXP OUTPUT constant atom:', (constant, []))
-                return (constant, [])
-
-            case Call(Name('input_int'), []):  # Lint; always leaf
-                inputint = Call(Name('input_int'), [])
-                if need_atomic:
-                    tmp = Name(generate_name('tmp'))
-                    print('RCO_EXP OUTPUT input_int complex:', (tmp, [(tmp, inputint)]))
-                    return (tmp, [(tmp, inputint)])
-                print('RCO_EXP OUTPUT input_int atom:', (inputint, []))
-                return (inputint, [])
-
-            #case Compare(ifcase, [cmp], [elcase]):  # Lif
-                # BUE
-            #   pass
-
-            #case IfExp(ifcase, exp, elcase):  # Lif
-                # BUE
-            #   pass
-
             #case Begin():  # Lif
                 # BUE
             #   pass
-
-            case UnaryOp(Not(), operand): # Lif
-                if need_atomic:
-                    tmp = Name(generate_name('tmp'))
-                    print('RCO_EXP OUTPUT not complex:', (tmp, l_tmp + [(tmp, nnot)]))
-                    return (tmp, l_tmp + [(tmp, nnot)])
-                print('RCO_EXP OUTPUT not atom:', (nnot, l_tmp))
-                return (neg, l_tmp)
-
-            case UnaryOp(USub(), operand):  # Lint and Lvar; maybe complex; operator, operand
-                newexp, l_tmp = self.rco_exp(operand, True)
-                neg = UnaryOp(USub(), newexp)
-                if need_atomic:
-                    tmp = Name(generate_name('tmp'))
-                    print('RCO_EXP OUTPUT neg complex:', (tmp, l_tmp + [(tmp, neg)]))
-                    return (tmp, l_tmp + [(tmp, neg)])
-                print('RCO_EXP OUTPUT neg atom:', (neg, l_tmp))
-                return (neg, l_tmp)
 
             case BinOp(left, Add(), right):  # Lint; maybe complex; expr, operator, expr
                 newexp1, l_tmp1 = self.rco_exp(left, True)
@@ -263,10 +220,66 @@ class Compiler:
                 print('RCO_EXP OUTPUT sub atom:', (sub, l_tmp1 + l_tmp2))
                 return (sub, l_tmp1 + l_tmp2)
 
+            #case BoolOp(boolop, [left, right]):
+            # bue 20241003: never happens. turned into if stmt in shrink op
+
+            case Call(Name('input_int'), []):  # Lint; always leaf
+                inputint = Call(Name('input_int'), [])
+                if need_atomic:
+                    tmp = Name(generate_name('tmp'))
+                    print('RCO_EXP OUTPUT input_int complex:', (tmp, [(tmp, inputint)]))
+                    return (tmp, [(tmp, inputint)])
+                print('RCO_EXP OUTPUT input_int atom:', (inputint, []))
+                return (inputint, [])
+
+            case Constant(value):  # Lint; Lif; always leaf
+                constant = Constant(value)  # bue 20241003: can handel int, bool
+                print('RCO_EXP OUTPUT constant atom:', (constant, []))
+                return (constant, [])
+
+            case Compare(left, [cmp], [right]):  # Lif; always leaf
+                compare = Compare(left, [cmp], [right])  # 20241003: can handel Eq, NotEq, Lt, LtE, Gt, GtE
+                print('RCO_EXP OUTPUT compare atom:', compare)
+                return (compare, [])
+
+            # bue 20241003: still have to test
+            case IfExp(exptest, expif, expelse):  # Lif
+                newexptest, l_tmptest = self.rco_exp(exptest, True)
+                newexpif, l_tmpif = self.rco_exp(expif, True)
+                newexpelse, l_tmpelse = self.rco_exp(expelse, True)
+                ifexp = IfExp(newexptest, newexpif, newexpelse)
+                if need_atomic:
+                    tmp = Name(generate_name('tmp'))
+                    print('RCO_EXP OUTPUT ifexp complex:', (tmp, l_tmptest + l_tmpif + l_tmpelse [(tmp, ifexp)]))
+                    return (tmp, l_tmptest + l_tmpif + l_tmpelse [(tmp, ifexp)])
+                print('RCO_EXP OUTPUT ifexp atom:', compare)
+                return (ifexp, [])
+
             case Name(var):  # Lvar; always leaf
                 name = Name(var)
                 print('RCO_EXP OUTPUT var name atom:', (name, []))
                 return (name, [])
+
+            # bue 20241003: still have to test
+            case UnaryOp(Not(), operand): # Lif
+                newexp, l_tmp = self.rco_exp(operand, True)
+                noot = UnaryOp(Not(), newexp)
+                if need_atomic:
+                    tmp = Name(generate_name('tmp'))
+                    print('RCO_EXP OUTPUT not complex:', (tmp, l_tmp + [(tmp, noot)]))
+                    return (tmp, l_tmp + [(tmp, noot)])
+                print('RCO_EXP OUTPUT not atom:', (noot, l_tmp))
+                return (noot, l_tmp)
+
+            case UnaryOp(USub(), operand):  # Lint and Lvar; maybe complex; operator, operand
+                newexp, l_tmp = self.rco_exp(operand, True)
+                neg = UnaryOp(USub(), newexp)
+                if need_atomic:
+                    tmp = Name(generate_name('tmp'))
+                    print('RCO_EXP OUTPUT neg complex:', (tmp, l_tmp + [(tmp, neg)]))
+                    return (tmp, l_tmp + [(tmp, neg)])
+                print('RCO_EXP OUTPUT neg atom:', (neg, l_tmp))
+                return (neg, l_tmp)
 
             case _:
                 raise Exception('Error: Compiler.rco_exp case not yet implemented.')
@@ -277,25 +290,28 @@ class Compiler:
         l_stmt = None
 
         match s:
-            case Expr(Call(Name('print'), [exp])):  # Lint
-                newexp, l_tmp =  self.rco_exp(exp, True)
-                l_stmt = [Assign([varc], expc) for varc, expc in l_tmp] + [Expr(Call(Name('print'), [newexp]))]
-
-            case Expr(exp):  # Lint
-                newexp, l_tmp =  self.rco_exp(exp, False)  # output: expression and enviroment
-                l_stmt = [Assign([varc], expc) for varc, expc in l_tmp]
 
             case Assign([Name(var)], exp):  # Lvar
                 newexp, l_tmp =  self.rco_exp(exp, False)  # output: expression and enviroment
                 l_stmt =  [Assign([varc], expc) for varc, expc in l_tmp] + [Assign([Name(var)], newexp)]
 
+            case Expr(exp):  # Lint
+                newexp, l_tmp =  self.rco_exp(exp, False)  # output: expression and enviroment
+                l_stmt = [Assign([varc], expc) for varc, expc in l_tmp]
+
             case Expr(Call(Name('inpt_int'), [exp])):  # Lvar
                 newexp, l_tmp = self.rco_exp(exp, True)
                 l_stmt = [Assign([varc], expc) for varc, expc in l_tmp]
 
-            #case If(exp, ifstmt, elstmt):  # Lif
-                # BUE
-            #pass
+            case Expr(Call(Name('print'), [exp])):  # Lint
+                newexp, l_tmp =  self.rco_exp(exp, True)
+                l_stmt = [Assign([varc], expc) for varc, expc in l_tmp] + [Expr(Call(Name('print'), [newexp]))]
+
+            # bue 20241003: still have to implement
+            case If(exptest, stmtif, stmtelse):  # Lif
+                #newexp, l_tmp = self.rco_exp(exp, True)
+                #l_stmt = [Assign(Name(varc), expc) for varc, expc in l_tmp]
+                pass
 
             case _:
                 raise Exception('Error: Compiler.rco_stmt case not yet implemented.')

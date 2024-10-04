@@ -1,1 +1,1 @@
-print(True)
+True
