@@ -215,9 +215,9 @@ class Compiler:
     def rco_exp(self, e: expr, need_atomic : bool) -> Tuple[expr, Temporaries]:
         print('RCO_EXP INPUT expr need_atomic :', e, need_atomic)
         match e:
-            #case Begin():  # Lif
-                # BUE
-            #   pass
+            case Begin(stm, exp):  # Lif
+                newexp = Begin(self.rco_stmt(stm), self.rco_exp(exp))
+                return (newexp, [])
 
             case BinOp(left, Add(), right):  # Lint; maybe complex; expr, operator, expr
                 newexp1, l_tmp1 = self.rco_exp(left, True)
@@ -263,22 +263,18 @@ class Compiler:
                 print('RCO_EXP OUTPUT compare atom:', compare)
                 return (compare, [])
 
-            # bue 20241003: still have to test
+            # BUE 20241006: no idea how to tackle this
             case IfExp(exptest, expthen, expelse):  # Lif
                 newexptest, l_tmptest = self.rco_exp(exptest, True)
-                newexpthen, l_tmpthen = self.rco_exp(expthen, True)
-                newexpelse, l_tmpelse = self.rco_exp(expelse, True)
+                newexpthen, l_tmpthen = self.rco_exp(Begin(expthen, exptest), True)
+                newexpelse, l_tmpelse = self.rco_exp(Begin(expelse, exptest), True)
                 ifexp = IfExp(newexptest, newexpthen, newexpelse)
                 if need_atomic:
                     tmp = Name(generate_name('tmp'))
                     print('RCO_EXP OUTPUT ifexp complex:', (tmp, l_tmptest + l_tmpif + l_tmpelse [(tmp, ifexp)]))
                     return (tmp, l_tmptest + l_tmpif + l_tmpelse [(tmp, ifexp)])
-                print('RCO_EXP OUTPUT ifexp atom:', compare)
+                print('RCO_EXP OUTPUT ifexp atom:', ifexp)
                 return (ifexp, [])
-
-            case Begin(stmt, exp):  # Lif
-                pass
-
 
             case Name(var):  # Lvar; always leaf
                 name = Name(var)
@@ -331,19 +327,12 @@ class Compiler:
                 newexp, l_tmp =  self.rco_exp(exp, True)
                 l_stmt = [Assign([varc], expc) for varc, expc in l_tmp] + [Expr(Call(Name('print'), [newexp]))]
 
-            # bue 20241003: still have to implement
+            # bue 20241006: no idea how to implemnet this.
             case If(exptest, stmtif, stmtelse):  # Lif
-                pass
-                #newexptest, l_tmptest = self.rco_exp(exptest, True)
-                #newstmtif, l_tmpif = self.rco_stmt(stmtif)
-                #newstmtelse, l_tmpelse = self.rco_stmt(stmtelse)
-                #l_stmt = [Assign([varc], expc) for varc, expc in l_tmp] + [Expr(Call(Name('print'), [newexp]))]
-
-                #ifexp = IfExp(newexptest, newexpif, newexpelse)
-                #newexp, l_tmp = self.rco_exp(stmtif, True)
-                #newexp, l_tmp = self.rco_exp(stmtelse, True)
-                #for varc, stmtc in l_tmp:
-                #    l_stmt = [Assign(Name(varc), stmtc)]
+                newexptest, l_tmptest = self.rco_exp(exptest, True)
+                newstmthen, l_tmpthen = self.rco_stmt(stmthen)
+                newstmelse, l_tmpelse = self.rco_stmt(stmelse)
+                # hmmm
 
             case _:
                 raise Exception('Error: Compiler.rco_stmt case not yet implemented.')
