@@ -131,42 +131,62 @@ def pe_P_int(p):
 class Compiler:
 
     ###########################################################################
-    # Shrink: Lif -> Lif mon
+    # Shrink: Lif -> Lif
     ###########################################################################
     # chapter 5 section 5.5 shrink the Lif language
 
-    def shrink_exp(self, b: expr, e1: expr, e2: expr) -> expr:
-        print('SHRINK_EXP INPUT expr:', b, e1, e2)
+    def shrink_exp(self, e: expr) -> expr:
+        print('SHRINK_EXP INPUT expr:', e)
         newexp = None
 
-        match b:
-            case And():
-                newexp = IfExp(e1, e2, Constant(False))
+        match e:
+            case BoolOp(And(), [exp1, exp2]):  # shrink translation
+                newexp = IfExp(self.shrink_exp(exp1), self.shrink_exp(exp2), Constant(False))
 
-            case Or():
-                newexp = IfExp(Constant(True), e1, e2)
+            case BoolOp(Or(), [exp1, exp2]):  # shrink translation
+                newexp = IfExp(Constant(True), self.shrink_exp(exp1), self.shrink_exp(exp2))
 
-            case _:
-                raise Exception('Error: Compiler.shrink_exp case not yet implemented.')
+            case Compare(exp1, [cmp], [exp2]):
+                newexp = Compare(self.shrink_exp(exp1), [cmp], [self.shrink_exp(exp2)])
+
+            case UnaryOp(operator, exp1):
+                newexp = UnaryOp(operator, self.shrink_exp(exp1))
+
+            case BinOp(exp1, operator, exp2):
+                newexp = BinOp(self.shrink_exp(exp1), operator, self.shrink_exp(exp2))
+
+            case IfExp(exp1, exp2, exp3):
+                newexp = IfExp(self.shrink_exp(exp1), self.shrink_exp(exp2), self.shrink_exp(exp3))
+
+            case _:  # Call(Name('input_int'), []) | Constant(value) | Name(var)
+                newexp = e
 
         print('SHRINK_EXP OUTPUT expr:', newexp)
         return newexp
 
 
     def shrink_stmt(self, s: stmt) -> stmt:
-        print('SHRINK_STMT INPUT s:', ast.dump(s))
-        stm = None
+        print('SHRINK_STMT INPUT s:', s)
+        newstm = None
 
         match s:
-            case Expr(BoolOp(boolop, [exp1, exp2])):
-                newexp = self.shrink_exp(boolop, exp1, exp2)
-                stm = newexp
+            case Assign([Name(var)], exp1):
+                newstm = Assign([Name(var)], self.shrink_exp(exp1))
 
-            case _:
-                stm = s
+            case Expr(Call(Name('print'), [exp1])):
+                newstm = Expr(Call(Name('print'), [self.shrink_exp(exp1)]))
 
-        print('SHRINK_STMT OUTPUT smt:', stm)
-        return stm
+            case Expr(exp1):
+                newstm = Expr(self.shrink_exp(exp1))
+
+            case If(exp1, stm2, stm3):
+                newstm = If(self.shrink_exp(exp1), self.shrink_stmt(stm2), self.shrink_stmt(stm3))
+
+            case _:  # [...] block
+                newstm = s
+
+        print('SHRINK_STMT OUTPUT smt:', newstm)
+        return newstm
 
 
     def shrink(self, p: Module) -> Module:
@@ -185,8 +205,9 @@ class Compiler:
         print('SHRINK OUTPUT module :', module)
         return module
 
+
     ############################################################################
-    # Remove Complex Operands: Lvar -> Lvar mon
+    # Remove Complex Operands: Lvar -> Lvar mon lif -> lif mon
     ############################################################################
     # trip to x86 chapter 1 and 2 section 2.4 remove compex operands.
     # output: expression and enviroment (expr, [(Name, (expr, [(Name, expr)]))])
@@ -243,17 +264,21 @@ class Compiler:
                 return (compare, [])
 
             # bue 20241003: still have to test
-            case IfExp(exptest, expif, expelse):  # Lif
+            case IfExp(exptest, expthen, expelse):  # Lif
                 newexptest, l_tmptest = self.rco_exp(exptest, True)
-                newexpif, l_tmpif = self.rco_exp(expif, True)
+                newexpthen, l_tmpthen = self.rco_exp(expthen, True)
                 newexpelse, l_tmpelse = self.rco_exp(expelse, True)
-                ifexp = IfExp(newexptest, newexpif, newexpelse)
+                ifexp = IfExp(newexptest, newexpthen, newexpelse)
                 if need_atomic:
                     tmp = Name(generate_name('tmp'))
                     print('RCO_EXP OUTPUT ifexp complex:', (tmp, l_tmptest + l_tmpif + l_tmpelse [(tmp, ifexp)]))
                     return (tmp, l_tmptest + l_tmpif + l_tmpelse [(tmp, ifexp)])
                 print('RCO_EXP OUTPUT ifexp atom:', compare)
                 return (ifexp, [])
+
+            case Begin(stmt, exp):  # Lif
+                pass
+
 
             case Name(var):  # Lvar; always leaf
                 name = Name(var)
@@ -290,7 +315,6 @@ class Compiler:
         l_stmt = None
 
         match s:
-
             case Assign([Name(var)], exp):  # Lvar
                 newexp, l_tmp =  self.rco_exp(exp, False)  # output: expression and enviroment
                 l_stmt =  [Assign([varc], expc) for varc, expc in l_tmp] + [Assign([Name(var)], newexp)]
@@ -309,9 +333,17 @@ class Compiler:
 
             # bue 20241003: still have to implement
             case If(exptest, stmtif, stmtelse):  # Lif
-                #newexp, l_tmp = self.rco_exp(exp, True)
-                #l_stmt = [Assign(Name(varc), expc) for varc, expc in l_tmp]
                 pass
+                #newexptest, l_tmptest = self.rco_exp(exptest, True)
+                #newstmtif, l_tmpif = self.rco_stmt(stmtif)
+                #newstmtelse, l_tmpelse = self.rco_stmt(stmtelse)
+                #l_stmt = [Assign([varc], expc) for varc, expc in l_tmp] + [Expr(Call(Name('print'), [newexp]))]
+
+                #ifexp = IfExp(newexptest, newexpif, newexpelse)
+                #newexp, l_tmp = self.rco_exp(stmtif, True)
+                #newexp, l_tmp = self.rco_exp(stmtelse, True)
+                #for varc, stmtc in l_tmp:
+                #    l_stmt = [Assign(Name(varc), stmtc)]
 
             case _:
                 raise Exception('Error: Compiler.rco_stmt case not yet implemented.')
