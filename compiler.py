@@ -476,8 +476,140 @@ class Compiler:
 
 
     ###########################################################################
-    # explicate control
+    # explicate control Lif -> Cif
     ###########################################################################
+
+    def create_block(stmts : List[stmt], basic_blocks : Dict) -> List:
+
+        match stmts:
+            case [Goto(1)]:
+                return stmts
+
+            case _:
+                label = label_name(generate_name('block'))
+                basic_blocks[label] = stmts
+                return [Goto(label)]
+        
+
+    def explicate_effect(self, e : expr, cont : List[stmt], basic_blocks : Dict) -> List[stmt]:
+        ''' generate code for expressions as statements, result is ignored, only side effects matter '''
+        print('EXPLICATE_EFFECT INPUT:')
+        l_stm = None
+ 
+        match e:
+            case IfExp(test, body, orelse):
+                pass
+
+            case Call(func, args):
+                pass
+
+            case Begin(body, result):
+                pass
+
+            case _:
+                pass
+
+        print('EXPLICATE_EFFECT OUTPUT l_stm:', l_stm)
+        return l_stm
+
+    def explicate_assign(self, rhs, lhs, cont : List[stmt], basic_blocks : Dict) -> List[stmt]:
+        ''' generate code for a right hand side expressions of an assignment '''
+        print('EXPLICATE_ASSIGN INPUT:')
+        l_stm = None
+
+        match rhs:
+            case IfExp(test, body, orelse):
+                pass
+
+            case Begin(body, result):
+                pass
+
+            case _:
+                l_stm = [Assign([lhs], rhs)] + cont
+
+        print('EXPLICATE_ASSIGN OUTPUT l_stm:', l_stm)
+        return l_stm
+
+          
+
+    def explicate_pred(self, cnd : expr, thn : List[stmt], els : List[stmt], basic_blocks : Dict) -> List[stmt]:
+        ''' generate code for if expressions or statement by analyzing the condition expression '''
+        print('EXPLICATE_PRED INPUT:')
+        l_stm = None
+
+        match cnd: 
+            case Compare(left, [op], [right]):
+                goto_thn = create_block(thn, basic_blocks)
+                goto_else = create_block(els, basic_blocks)
+                l_stm = [If(cnd, goto_thn, goto_els)]
+
+            case Constant(True):
+                l_stm = thn
+
+            case Constant(False):
+                l_stm = els
+
+            case UnaryOp(Not(), operand):
+                pass
+
+            case IfExp(test, body, orelse):
+                pass
+
+            case Begin(body, result):
+                pass
+
+            case _:
+                l_stm = [If(
+                    Compare(cnd, [Eq()], [Constant(False)]), 
+                    create_block(els, basic_blocks),
+                    create_block(thn, basic_blocks)
+                )]
+
+        print('EXPLICATE_PRED OUTPUT l_stm:', l_stm)
+        return l_stm
+
+
+    def explicate_stmt(self, s : stmt, cont : List, basic_blocks : Dict) -> List[stmt]:
+        ''' generate code for statements '''
+        print('EXPLICATE_STMT INPUT:')
+        l_stm = None
+
+        match s:
+            case Assign([lhs], rhs):
+                l_stm = explicate_assign(rhs, lhs, cont, basic_blocks)
+
+            case Expr(value):
+                l_stm = explicate_effect(value, cont, basic_blocks)
+
+            case If(test, body, orelse):  # bue 20241006
+                l_stm = explicate_pred(test, body, orelse, basic_blocks)
+
+            case _:
+                raise Exception('Error: Compiler.explicate_stmt case not yet implemented.')
+
+        print('EXPLICATE_STMT OUTPUT l_stm:', l_stm)
+        return l_stm
+
+
+    def explicate_control(self, p: Module):
+        print('EXPLICATE_CTRL INPUT Module:', ast.dump(p))
+        cprogram = None
+
+        match p:
+            case Module(body):
+                new_body = [Return(Constant(0))]
+                basic_blocks = {}
+                for s in reversed(body):
+                    new_body = explicate_stmt(s, new_body, basic_blocks)
+                basic_blocks.update({label_name('start') : new_body})
+                cprogram = CProgram(basic_blocks)
+
+            case _:
+                raise Exception('Error: Compiler.explicate_control case not yet implemented.')
+
+        print('EXPLICATE_CTRL INPUT CProgram', cprogram)
+        return cprogram
+
 
 
     ###########################################################################
