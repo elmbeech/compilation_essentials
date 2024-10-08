@@ -213,11 +213,13 @@ class Compiler:
     # output: expression and enviroment (expr, [(Name, (expr, [(Name, expr)]))])
 
     def rco_exp(self, e: expr, need_atomic : bool) -> Tuple[expr, Temporaries]:
-        print('RCO_EXP INPUT expr need_atomic :', e, need_atomic)
+        #print('RCO_EXP INPUT expr, need_atomic :', e, need_atomic)
         match e:
             case Begin(stm, exp):  # Lif
-                newexp = Begin(self.rco_stmt(stm), self.rco_exp(exp))
-                return (newexp, [])
+                print('BUE: introducing a begin. THIS IS NOT WORKING')
+                l_stm = self.rco_stmt(stm)
+                newexp, l_tmp = self.rco_exp(exp, True)
+                return (newexp, l_stm)
 
             case BinOp(left, Add(), right):  # Lint; maybe complex; expr, operator, expr
                 newexp1, l_tmp1 = self.rco_exp(left, True)
@@ -263,17 +265,16 @@ class Compiler:
                 print('RCO_EXP OUTPUT compare atom:', compare)
                 return (compare, [])
 
-            # BUE 20241006: no idea how to tackle this
             case IfExp(exptest, expthen, expelse):  # Lif
-                newexptest, l_tmptest = self.rco_exp(exptest, True)
-                newexpthen, l_tmpthen = self.rco_exp(Begin(expthen, exptest), True)
-                newexpelse, l_tmpelse = self.rco_exp(Begin(expelse, exptest), True)
+                print('BUE: handle IfExp.')
+                newexptest = self.rco_exp(exptest, True)
+                newexpthen = Name(generate_name('tmp')) 
+                self.rco_exp(Begin(Expr(expthen), newexpthen), True)
+                newexpelse = Name(generate_name('tmp')) 
+                self.rco_exp(Begin(Expr(expelse), newexpelse), True)
+                print('this is input:', newexptest, ':::', newexpthen, ':::', newexpelse)
                 ifexp = IfExp(newexptest, newexpthen, newexpelse)
-                if need_atomic:
-                    tmp = Name(generate_name('tmp'))
-                    print('RCO_EXP OUTPUT ifexp complex:', (tmp, l_tmptest + l_tmpif + l_tmpelse [(tmp, ifexp)]))
-                    return (tmp, l_tmptest + l_tmpif + l_tmpelse [(tmp, ifexp)])
-                print('RCO_EXP OUTPUT ifexp atom:', ifexp)
+                print('RCO_EXP OUTPUT ifexp atom:', ifexp, [])
                 return (ifexp, [])
 
             case Name(var):  # Lvar; always leaf
@@ -307,7 +308,7 @@ class Compiler:
 
 
     def rco_stmt(self, s: stmt) -> List[stmt]:
-        print('RCO_STMT INPUT stmt:', ast.dump(s))
+        #print('RCO_STMT INPUT stmt:', ast.dump(s))
         l_stmt = None
 
         match s:
@@ -327,12 +328,12 @@ class Compiler:
                 newexp, l_tmp =  self.rco_exp(exp, True)
                 l_stmt = [Assign([varc], expc) for varc, expc in l_tmp] + [Expr(Call(Name('print'), [newexp]))]
 
-            # bue 20241006: no idea how to implemnet this.
-            case If(exptest, stmtif, stmtelse):  # Lif
-                newexptest, l_tmptest = self.rco_exp(exptest, True)
-                newstmthen, l_tmpthen = self.rco_stmt(stmthen)
-                newstmelse, l_tmpelse = self.rco_stmt(stmelse)
-                # hmmm
+            case If(exptest, stmthen, stmtelse):  # Lif
+                print('BUE this is what we got!', exptest, stmthen, stmtelse)
+                newexptest, l_tmptest = self.rco_exp(exptest, True)  # BUE: what should I do with l_tmptest
+                l_stmtthen = self.rco_stmt(stmthen)  # BUE: this is a list of statement and not a statement
+                l_stmtelse = self.rco_stmt(stmelse)  # BUE: this is a list of statement and not a statement
+                l_stmt = [If(newexptest, l_stmtthen, l_stmtelse)] 
 
             case _:
                 raise Exception('Error: Compiler.rco_stmt case not yet implemented.')
@@ -1117,6 +1118,7 @@ class Compiler:
                 ])
 
                 x86program = X86Program(prelude + prog + conclusion)
+                # main and conclusion jump.
 
             case _:
                 raise Exception('Error: Compiler.prelude_and_conclusion case not yet implemented.')
