@@ -326,7 +326,7 @@ class Compiler:
                 newexp, l_tmp =  self.rco_exp(exp, False)  # output: expression and enviroment
                 l_stmt = [Assign([varc], expc) for varc, expc in l_tmp]
 
-            case Expr(Call(Name('inpt_int'), [exp])):  # Lvar
+            case Expr(Call(Name('input_int'), [exp])):  # Lvar
                 newexp, l_tmp = self.rco_exp(exp, True)
                 l_stmt = [Assign([varc], expc) for varc, expc in l_tmp]
 
