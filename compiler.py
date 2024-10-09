@@ -207,20 +207,14 @@ class Compiler:
 
 
     ############################################################################
-    # Remove Complex Operands: Lvar -> Lvar mon lif -> lif mon
+    # Remove Complex Operands: Lvar -> Lvar mon or Lif -> Lif mon
     ############################################################################
     # trip to x86 chapter 1 and 2 section 2.4 remove compex operands.
     # output: expression and enviroment (expr, [(Name, (expr, [(Name, expr)]))])
 
     def rco_exp(self, e: expr, need_atomic : bool) -> Tuple[expr, Temporaries]:
-        #print('RCO_EXP INPUT expr, need_atomic :', e, need_atomic)
+        print('RCO_EXP INPUT expr, need_atomic :', e, need_atomic)
         match e:
-            case Begin(stm, exp):  # Lif
-                print('BUE: introducing a begin. THIS IS NOT WORKING')
-                l_stm = self.rco_stmt(stm)
-                newexp, l_tmp = self.rco_exp(exp, True)
-                return (newexp, l_stm)
-
             case BinOp(left, Add(), right):  # Lint; maybe complex; expr, operator, expr
                 newexp1, l_tmp1 = self.rco_exp(left, True)
                 newexp2, l_tmp2 = self.rco_exp(right, True)
@@ -266,16 +260,28 @@ class Compiler:
                 return (compare, [])
 
             case IfExp(exptest, expthen, expelse):  # Lif
-                print('BUE: handle IfExp.')
-                newexptest = self.rco_exp(exptest, True)
-                newexpthen = Name(generate_name('tmp'))
-                self.rco_exp(Begin(Expr(expthen), newexpthen), True)
-                newexpelse = Name(generate_name('tmp'))
-                self.rco_exp(Begin(Expr(expelse), newexpelse), True)
-                print('this is input:', newexptest, ':::', newexpthen, ':::', newexpelse)
-                ifexp = IfExp(newexptest, newexpthen, newexpelse)
-                print('RCO_EXP OUTPUT ifexp atom:', ifexp, [])
-                return (ifexp, [])
+                # test
+                newexptest, l_tmptest = self.rco_exp(exptest, False)
+                # then
+                newexpthen, l_tmpexpthen = self.rco_exp(expthen, False)
+                l_tmpstmtthen = [Assign([Name(var)], exp) for var, exp in l_tmpexpthen]
+                #l_tmpstmtthen = [Assign([var], exp) for var, exp in l_tmpexpthen]
+                # else
+                newexpelse, l_tmpexpelse = self.rco_exp(expelse, False)
+                l_tmpstmtelse = [Assign([Name(var)], exp) for var, exp in l_tmpexpelse]
+                #l_tmpstmtelse = [Assign([var], exp) for var, exp in l_tmpexpelse]
+                # ifexp statement
+                # bue 20241009: Begin is part of Lif mon and not part of Lif.
+                if (len(l_tmpstmtthen) == 0) and (len(l_tmpstmtelse) == 0):
+                    ifexp = IfExp(newexptest, newexpthen, newexpelse)
+                elif (len(l_tmpstmtthen) == 0) and (len(l_tmpstmtelse) != 0):
+                    ifexp = IfExp(newexptest, newexpthen, Begin(l_tmpstmtelse, newexpelse))
+                elif (len(l_tmpstmtthen) != 0) and (len(l_tmpstmtelse) == 0):
+                    ifexp = IfExp(newexptest, Begin(l_tmpstmtthen, newexpthen), newexpelse)
+                else:
+                    ifexp = IfExp(newexptest, Begin(l_tmpstmtthen, newexpthen), Begin(l_tmpstmtelse, newexpelse))
+                print('RCO_EXP OUTPUT ifexp:', ifexp, l_tmptest)
+                return (ifexp, l_tmptest)
 
             case Name(var):  # Lvar; always leaf
                 name = Name(var)
@@ -304,11 +310,11 @@ class Compiler:
                 return (neg, l_tmp)
 
             case _:
-                raise Exception('Error: Compiler.rco_exp case not yet implemented.')
+                raise Exception(f'Error: {e} Compiler.rco_exp case not yet implemented.')
 
 
     def rco_stmt(self, s: stmt) -> List[stmt]:
-        #print('RCO_STMT INPUT stmt:', ast.dump(s))
+        print('RCO_STMT INPUT stmt:', ast.dump(s))
         l_stmt = None
 
         match s:
@@ -328,12 +334,14 @@ class Compiler:
                 newexp, l_tmp =  self.rco_exp(exp, True)
                 l_stmt = [Assign([varc], expc) for varc, expc in l_tmp] + [Expr(Call(Name('print'), [newexp]))]
 
-            case If(exptest, stmthen, stmtelse):  # Lif
-                print('BUE this is what we got!', exptest, stmthen, stmtelse)
-                newexptest, l_tmptest = self.rco_exp(exptest, True)  # BUE: what should I do with l_tmptest
-                l_stmtthen = self.rco_stmt(stmthen)  # BUE: this is a list of statement and not a statement
-                l_stmtelse = self.rco_stmt(stmelse)  # BUE: this is a list of statement and not a statement
-                l_stmt = [If(newexptest, l_stmtthen, l_stmtelse)]
+            case If(exptest, stmthen, stmelse):  # Lif
+                newexptest, l_tmptest = self.rco_exp(exptest, False)
+                #l_stmtmptest = [Assign([Name(generate_name('tmp'))], exp) for exp in l_tmptest]
+                l_stmthen = [self.rco_stmt(stm) for stm in stmthen]
+                l_stmelse = [self.rco_stmt(stm)  for stm in stmelse]
+                l_stmt = [Assign([varc], expc) for varc, expc in l_tmptest] + [If(newexptest, l_stmthen, l_stmelse)]
+                #l_stmt = l_stmtmptest + [If(newexptest, l_stmthen, l_stmelse)]
+                #l_stmt = l_stmtmptest + [If(newexptest, stmthen, stmelse)]
 
             case _:
                 raise Exception('Error: Compiler.rco_stmt case not yet implemented.')
@@ -422,7 +430,7 @@ class Compiler:
                 return [Assign(lhs, new_body)] + cont_block
 
             case _:
-                return = [Assign([lhs], rhs)] + cont
+                return [Assign([lhs], rhs)] + cont
 
         #print('EXPLICATE_ASSIGN OUTPUT l_stm:', l_stm)
         #return l_stm
@@ -821,7 +829,7 @@ class Compiler:
         match p:
             case X86Program(body):
                 g = DirectedAdjList()
-        
+
                 # walk through the program instructuons
                 for src, l_stmt in body.items():
                     for i in l_stmt:
@@ -833,6 +841,7 @@ class Compiler:
                                 g.add_edge(src, dst)
 
                             case _:
+                                pass
 
         print('BUILD_CFG OUTPUT:', g.show())
         return g
