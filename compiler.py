@@ -4,7 +4,7 @@ from ast import *  # Add, BinOP, Call, Constant, expr, Name, Sub, UnaryOP, USub
 # https://docs.python.org/3/library/language.html
 # https://docs.python.org/3/library/ast.html
 # https://greentreesnakes.readthedocs.io/en/latest/
-from graph import UndirectedAdjList
+from graph import UndirectedAdjList, DirectedAdjList, transpose, topological_sort
 import os
 from priority_queue import PriorityQueue
 from utils import *  # generate_name, input_int, label_name
@@ -268,9 +268,9 @@ class Compiler:
             case IfExp(exptest, expthen, expelse):  # Lif
                 print('BUE: handle IfExp.')
                 newexptest = self.rco_exp(exptest, True)
-                newexpthen = Name(generate_name('tmp')) 
+                newexpthen = Name(generate_name('tmp'))
                 self.rco_exp(Begin(Expr(expthen), newexpthen), True)
-                newexpelse = Name(generate_name('tmp')) 
+                newexpelse = Name(generate_name('tmp'))
                 self.rco_exp(Begin(Expr(expelse), newexpelse), True)
                 print('this is input:', newexptest, ':::', newexpthen, ':::', newexpelse)
                 ifexp = IfExp(newexptest, newexpthen, newexpelse)
@@ -333,7 +333,7 @@ class Compiler:
                 newexptest, l_tmptest = self.rco_exp(exptest, True)  # BUE: what should I do with l_tmptest
                 l_stmtthen = self.rco_stmt(stmthen)  # BUE: this is a list of statement and not a statement
                 l_stmtelse = self.rco_stmt(stmelse)  # BUE: this is a list of statement and not a statement
-                l_stmt = [If(newexptest, l_stmtthen, l_stmtelse)] 
+                l_stmt = [If(newexptest, l_stmtthen, l_stmtelse)]
 
             case _:
                 raise Exception('Error: Compiler.rco_stmt case not yet implemented.')
@@ -360,8 +360,166 @@ class Compiler:
         return module
 
 
+    ###########################################################################
+    # explicate control Lif mon -> Cif
+    ###########################################################################
+
+    def create_block(stmts : List[stmt], basic_blocks : Dict) -> List:
+        # bue: this updates the basic_blocks dict
+
+        match stmts:
+            case [Goto(1)]:
+                return stmts
+
+            case _:
+                label = label_name(generate_name('block'))
+                basic_blocks[label] = stmts
+                return [Goto(label)]
+
+
+    def explicate_effect(self, e : expr, cont : List[stmt], basic_blocks : Dict) -> List[stmt]:
+        ''' generate code for expressions as statements, result is ignored, only side effects matter '''
+        #print('EXPLICATE_EFFECT INPUT:')
+        #l_stm = None
+
+        match e:
+            case IfExp(test, body, orelse):
+                cont_block = self.create_block(cont, basic_blocks)
+                body_block = self.create_block(body, basic_blocks)
+                orelse_block = self.create_block(orelse, basic_blocks)
+                new_test = self.explicate_pred(test, body_block, orelse_block, basic_blocks)
+                return new_test
+
+            case Call(func, args):
+                return Expr(Call(func, args))
+
+            case Begin(body, result):
+                new_block = self.create_block(cont, basic_blocks)
+                new_body = self.explicate_effect(body, new_block, basic_blocks)
+                return new_body
+
+            case _:
+                pass
+
+        #print('EXPLICATE_EFFECT OUTPUT l_stm:', l_stm)
+        #return l_stm
+
+
+    def explicate_assign(self, rhs, lhs, cont : List[stmt], basic_blocks : Dict) -> List[stmt]:
+        ''' generate code for a right hand side expressions of an assignment '''
+        #print('EXPLICATE_ASSIGN INPUT:')
+        #l_stm = None
+
+        match rhs:
+            case IfExp(test, body, orelse):
+                cont_block = self.create_block(cont, basic_blocks)
+                body_assign = self.explicate_assign(body, lhs, cont_block, basic_blocks)
+                return [Assign([lhs], body_assign)] + cont_block
+
+            case Begin(body, result):
+                cont_block = self.create_block(cont, basic_blocks)
+                new_body = self.explicate_assign(body, lhs, cont_block, basic_blocks)
+                return [Assign(lhs, new_body)] + cont_block
+
+            case _:
+                return = [Assign([lhs], rhs)] + cont
+
+        #print('EXPLICATE_ASSIGN OUTPUT l_stm:', l_stm)
+        #return l_stm
+
+
+    def explicate_pred(self, cnd : expr, thn : List[stmt], els : List[stmt], basic_blocks : Dict) -> List[stmt]:
+        ''' generate code for if expressions or statement by analyzing the condition expression '''
+        #print('EXPLICATE_PRED INPUT:')
+        #l_stm = None
+
+        match cnd:
+            case Compare(left, [op], [right]):
+                goto_thn = create_block(thn, basic_blocks)
+                goto_else = create_block(els, basic_blocks)
+                return [If(cnd, goto_thn, goto_els)]
+
+            case Constant(True):
+                return thn
+
+            case Constant(False):
+                return els
+
+            case UnaryOp(Not(), operand):
+                goto_thn = self.create_block(thn, basic_blocks)
+                goto_els = self.create_block(els, basic_blocks)
+                o1 = self.explicate_pred(operand, goto_thn, goto_els, basic_blocks)
+                return o1
+
+            case IfExp(test, body, orelse):
+                goto_thn = self.create_block(thn, basic_blocks)
+                goto_els = self.create_block(els, basic_blocks)
+                b1 = self.explicate_pred(body, goto_thn, goto_els, basic_blocks)
+                o1 = self.explicate_pred(orelse, goto_thn, goto_els, basic_blocks)
+                new_test = self.explicate_pred(test, b1, o1, basic_blocks)
+                return new_test
+
+            case Begin(body, result):
+                goto_thn = self.create_block(thn, basic_blocks)
+                goto_els = self.create_block(els, basic_blocks)
+                new_body = self.explicate_pred(body, goto_thn, goto_els, basic_blocks)
+                return new_body
+
+            case _:
+                l_stm = [If(
+                    Compare(cnd, [Eq()], [Constant(False)]),
+                    create_block(els, basic_blocks),
+                    create_block(thn, basic_blocks)
+                )]
+
+        #print('EXPLICATE_PRED OUTPUT l_stm:', l_stm)
+        #return l_stm
+
+
+    def explicate_stmt(self, s : stmt, cont : List, basic_blocks : Dict) -> List[stmt]:
+        ''' generate code for statements '''
+        #print('EXPLICATE_STMT INPUT:')
+        #l_stm = None
+
+        match s:
+            case Assign([lhs], rhs):
+                return self.explicate_assign(rhs, lhs, cont, basic_blocks)
+
+            case Expr(value):
+                return self.explicate_effect(value, cont, basic_blocks)
+
+            case If(test, body, orelse):  # bue 20241006
+                return self.explicate_pred(test, body, orelse, basic_blocks)
+
+            case _:
+                raise Exception('Error: Compiler.explicate_stmt case not yet implemented.')
+
+        #print('EXPLICATE_STMT OUTPUT l_stm:', l_stm)
+        #return l_stm
+
+
+    def explicate_control(self, p: Module):
+        print('EXPLICATE_CTRL INPUT Module:', ast.dump(p))
+        cprogram = None
+
+        match p:
+            case Module(body):
+                new_body = [Return(Constant(0))]
+                basic_blocks = {}
+                for s in reversed(body):
+                    new_body = explicate_stmt(s, new_body, basic_blocks)
+                basic_blocks.update({label_name('start') : new_body})
+                cprogram = CProgram(basic_blocks)
+
+            case _:
+                raise Exception('Error: Compiler.explicate_control case not yet implemented.')
+
+        print('EXPLICATE_CTRL INPUT CProgram', cprogram)
+        return cprogram
+
+
     ############################################################################
-    # Select Instructions: Lvar mon -> x86var
+    # Select Instructions: Lvar mon -> x86var  Cif -> X86var
     ############################################################################
     # trip to x86 chapter 1 and 2 section 2.5 select instructions.
 
@@ -372,7 +530,14 @@ class Compiler:
 
         match e:
             case Constant(var):  # Lint atom
-                arg_var = Immediate(var)
+                if var:
+                    arg_var = Immediate(1)
+
+                elif not var:
+                    arg_var = Immediate(0)
+
+                else:
+                    arg_var = Immediate(var)
 
             case Name(var):  # Lvar atom
                 arg_var = Variable(var)
@@ -393,15 +558,6 @@ class Compiler:
                 arg_var = self.select_arg(Name(var))
                 l_inst = [
                     Callq(label_name('read_int'), []),
-                    Instr('movq', [Reg('rax'), arg_var]),
-                ]
-
-            case Assign([Name(var)], UnaryOp(USub(), operand)):  # Lint expr : exproperator, operand
-                arg_var = self.select_arg(Name(var))
-                arg_operand = self.select_arg(operand)
-                l_inst = [
-                    Instr('movq', [arg_operand, Reg('rax')]),
-                    Instr('negq', [Reg('rax')]),
                     Instr('movq', [Reg('rax'), arg_var]),
                 ]
 
@@ -433,6 +589,33 @@ class Compiler:
                     Instr('movq', [Reg('rax'), arg_var]),
                 ]
 
+            case Assign([Name(var)], exp):  # Lvar stmt
+                arg = self.select_arg(exp)
+                l_inst = [
+                    Instr('movq', [arg, Variable(var)]),
+                ]
+
+            case Assign([Name(var)], UnaryOp(USub(), operand)):  # Lint expr : operator, operand
+                arg_var = self.select_arg(Name(var))
+                arg_operand = self.select_arg(operand)
+                l_inst = [
+                    Instr('movq', [arg_operand, Reg('rax')]),
+                    Instr('negq', [Reg('rax')]),
+                    Instr('movq', [Reg('rax'), arg_var]),
+                ]
+
+            case Assign([Name(var)], UnaryOp(Not(), operand)):  # Lif expr: operator, operand
+                l_instr = None
+                arg_var = self.select_arg(Name(var))
+                arg_operand = self.select_arg(operand)
+                if arg_var == arg_operand :
+                    l_inst = [Instr('xorq', [Immediate(1), arg_var])]
+                else:
+                    l_inst = [
+                        Instr('movq', [arg_var, arg_operand]),
+                        Instr('xorq', [Immediate(1), arg_var]),
+                    ]
+
             case Expr(Call(Name('print'), [exp])):  # Lint stmt
                 arg_exp = self.select_arg(exp)
                 l_inst = [
@@ -445,14 +628,72 @@ class Compiler:
             #    arg_exp = self.select_arg(exp)
             #    l_inst = []
 
-            case Assign([Name(var)], exp):  # Lvar stmt
-                arg = self.select_arg(exp)
-                l_inst = [
-                    Instr('movq', [arg, Variable(var)]),
+            case If(Compare(atm1, [comp], [atm2], [Goto(label1)], [Goto(label2)])):
+
+                atm_one = self.select_arg(atm1)
+                atm_two = self.select_arg(atm2)
+
+                if (compare == Eq()):
+                    cc = 'e'
+                    l_instr = [
+                        Instr('cmpq', [atm_one, atm_two]),
+                        Instr('JumpIf', cc, label1),
+                        Instr('Jump', label2)
+
+                    ]
+
+                elif (compare == GtE()):
+                    cc ='ge'
+                    l_instr = [
+                        Instr('cmpq', [atm_one, atm_two]),
+                        Instr('JumpIf', cc, label1),
+                        Instr('Jump', label2)
+                    ]
+
+                elif (compare == LtE()):
+                    cc = 'le'
+                    l_instr = [
+                        Instr('cmpq', [atm_one, atm_two]),
+                        Instr('JumpIf', cc, label1),
+                        Instr('Jump', label2)
+                    ]
+
+                elif (compare == Lt()):
+                    cc = 'l'
+                    l_instr = [
+                        Instr('cmpq', [atm_one, atm_two]),
+                        Instr('JumpIf', cc, label1),
+                        Instr('Jump', label2)
+                    ]
+
+                elif (compare == Gt()):
+                    cc = 'g'
+                    l_instr = [
+                        Instr('cmpq', [atm_one, atm_two]),
+                        Instr('JumpIf', cc, label1),
+                        Instr('Jump', label2)
+                    ]
+
+                elif (compare == NotEq()):
+                    cc = 'ne'
+                    l_instr = [
+                        Instr('cmpq', [atm_one, atm_two]),
+                        Instr('JumpIf', cc, label1),
+                        Instr('Jump', label2)
+                    ]
+
+                else:
+                    raise Exception('Error: Compiler.select_stmt If Compare case not yet implemented.')
+
+            case Return(exp):
+                new_exp = self.select_arg(exp)
+                l_instr = [
+                    Instr('movq',[new_exp,Reg('rax')]),
+                    Jump('conclusion')
                 ]
 
             case _:
-                 raise Exception('Error: Compiler.select_stmt case not yet implemented.')
+                raise Exception('Error: Compiler.select_stmt case not yet implemented.')
 
         print('SELECT_STMT OUTPUT l_inst:', l_inst)
         return l_inst
@@ -464,153 +705,20 @@ class Compiler:
 
         match p:
             case Module(body):
-                l_inst = []
-                for stmt in body:
-                    l_inst.extend(self.select_stmt(stmt))
-                x86program = X86Program(l_inst)
+                d_body = {}
+                # BUE 20241008: this might through an error
+                for s_label, l_stmt in body.items():
+                    l_inst = []
+                    for stmt in l_stmt:
+                        l_inst.extend(self.select_stmt(stmt))
+                    d_body.update({s_label : l_inst})
+                x86program = X86Program(d_body)
 
             case _:
                 raise Exception('Error: Compiler.select_instructions case not yet implemented.')
 
         print('SELECT_INSTRUCTIONS OUTPUT x86program:', x86program)
         return x86program
-
-
-    ###########################################################################
-    # explicate control Lif -> Cif
-    ###########################################################################
-
-    def create_block(stmts : List[stmt], basic_blocks : Dict) -> List:
-
-        match stmts:
-            case [Goto(1)]:
-                return stmts
-
-            case _:
-                label = label_name(generate_name('block'))
-                basic_blocks[label] = stmts
-                return [Goto(label)]
-        
-
-    def explicate_effect(self, e : expr, cont : List[stmt], basic_blocks : Dict) -> List[stmt]:
-        ''' generate code for expressions as statements, result is ignored, only side effects matter '''
-        print('EXPLICATE_EFFECT INPUT:')
-        l_stm = None
- 
-        match e:
-            case IfExp(test, body, orelse):
-                pass
-
-            case Call(func, args):
-                pass
-
-            case Begin(body, result):
-                pass
-
-            case _:
-                pass
-
-        print('EXPLICATE_EFFECT OUTPUT l_stm:', l_stm)
-        return l_stm
-
-    def explicate_assign(self, rhs, lhs, cont : List[stmt], basic_blocks : Dict) -> List[stmt]:
-        ''' generate code for a right hand side expressions of an assignment '''
-        print('EXPLICATE_ASSIGN INPUT:')
-        l_stm = None
-
-        match rhs:
-            case IfExp(test, body, orelse):
-                pass
-
-            case Begin(body, result):
-                pass
-
-            case _:
-                l_stm = [Assign([lhs], rhs)] + cont
-
-        print('EXPLICATE_ASSIGN OUTPUT l_stm:', l_stm)
-        return l_stm
-
-          
-
-    def explicate_pred(self, cnd : expr, thn : List[stmt], els : List[stmt], basic_blocks : Dict) -> List[stmt]:
-        ''' generate code for if expressions or statement by analyzing the condition expression '''
-        print('EXPLICATE_PRED INPUT:')
-        l_stm = None
-
-        match cnd: 
-            case Compare(left, [op], [right]):
-                goto_thn = create_block(thn, basic_blocks)
-                goto_else = create_block(els, basic_blocks)
-                l_stm = [If(cnd, goto_thn, goto_els)]
-
-            case Constant(True):
-                l_stm = thn
-
-            case Constant(False):
-                l_stm = els
-
-            case UnaryOp(Not(), operand):
-                pass
-
-            case IfExp(test, body, orelse):
-                pass
-
-            case Begin(body, result):
-                pass
-
-            case _:
-                l_stm = [If(
-                    Compare(cnd, [Eq()], [Constant(False)]), 
-                    create_block(els, basic_blocks),
-                    create_block(thn, basic_blocks)
-                )]
-
-        print('EXPLICATE_PRED OUTPUT l_stm:', l_stm)
-        return l_stm
-
-
-    def explicate_stmt(self, s : stmt, cont : List, basic_blocks : Dict) -> List[stmt]:
-        ''' generate code for statements '''
-        print('EXPLICATE_STMT INPUT:')
-        l_stm = None
-
-        match s:
-            case Assign([lhs], rhs):
-                l_stm = explicate_assign(rhs, lhs, cont, basic_blocks)
-
-            case Expr(value):
-                l_stm = explicate_effect(value, cont, basic_blocks)
-
-            case If(test, body, orelse):  # bue 20241006
-                l_stm = explicate_pred(test, body, orelse, basic_blocks)
-
-            case _:
-                raise Exception('Error: Compiler.explicate_stmt case not yet implemented.')
-
-        print('EXPLICATE_STMT OUTPUT l_stm:', l_stm)
-        return l_stm
-
-
-    def explicate_control(self, p: Module):
-        print('EXPLICATE_CTRL INPUT Module:', ast.dump(p))
-        cprogram = None
-
-        match p:
-            case Module(body):
-                new_body = [Return(Constant(0))]
-                basic_blocks = {}
-                for s in reversed(body):
-                    new_body = explicate_stmt(s, new_body, basic_blocks)
-                basic_blocks.update({label_name('start') : new_body})
-                cprogram = CProgram(basic_blocks)
-
-            case _:
-                raise Exception('Error: Compiler.explicate_control case not yet implemented.')
-
-        print('EXPLICATE_CTRL INPUT CProgram', cprogram)
-        return cprogram
-
 
 
     ###########################################################################
@@ -706,6 +814,29 @@ class Compiler:
         print('WRITE_VARS OUTPUT:', e_write)
         return(e_write)
 
+    def build_cfg(self, p:X86Program)  -> DirectedAdjList: # ctrl flow graph
+        print('BUILD_CFG INPUT:', p)
+        g = None
+
+        match p:
+            case X86Program(body):
+                g = DirectedAdjList()
+        
+                # walk through the program instructuons
+                for src, l_stmt in body.items():
+                    for i in l_stmt:
+                        match i:
+                            case Jump(dst):
+                                g.add_edge(src, dst)
+
+                            case JumpIf(cc, dst):
+                                g.add_edge(src, dst)
+
+                            case _:
+
+        print('BUILD_CFG OUTPUT:', g.show())
+        return g
+
 
     def uncover_live(self, p: X86Program) -> Dict[instr, Set[location]]:
         print('UNCOVER_LIVE INPUT:', p)
@@ -716,13 +847,18 @@ class Compiler:
                 e_location = set()
                 e_after = set()
                 d_after = {}
-                for i in body[::-1]:
-                     e_read = self.read_vars(i)
-                     e_write = self.write_vars(i)
-                     e_before = (e_after.difference(e_write)).union(e_read)
-                     d_after.update({i: e_after})
-                     e_after = e_before
-                     e_location = e_location.union(e_read.union(e_write))
+                d_live_before_block = {}
+                g = build_cfg(p)
+                for s_label  in topological_sort(transpose(g)):
+                    for i in body[label][::-1]:
+                        # bue 20241008: p84 live before block
+                        e_read = self.read_vars(i)
+                        e_write = self.write_vars(i)
+                        e_before = (e_after.difference(e_write)).union(e_read)
+                        d_after.update({i: e_after})
+                        e_after = e_before
+                        e_location = e_location.union(e_read.union(e_write))
+                    d_live_before_block.update({s_label : e_before})
 
             case _:
                 raise Exception('Error: Compiler.select_instructions case not yet implemented.')
@@ -759,7 +895,7 @@ class Compiler:
                         #        for var in live_after[i]:
                         #            g.add_edge(dst, var)
 
-                        case Instr('movq', [src, dst]):
+                        case Instr('movq', [src, dst]) | Instr('movzbq', [src, dst]):
                             for var in live_after[i]:
                                 if (var != src) and (var != dst):
                                     g.add_edge(dst, var)
@@ -1033,6 +1169,18 @@ class Compiler:
                 l_inst.append( Instr('movq', [Deref(reg1, arg1), Reg('rax')]) )
                 l_inst.append( Instr('addq', [Reg('rax'), Deref(reg2, arg2)]) )
 
+            case Instr('cmpq',[Immediate(value1),Immediate(value2)]):
+                l_inst.append( Instr('movq',[Immediate(value2),Reg('rax')]) )
+
+            case Instr('cmpq',[Deref(reg1,value1),Deref(reg2,value2)]):
+                l_inst.append( Instr('movq',[Deref(reg1,value1),Reg('rax')]) )
+                l_inst.append( Instr('cmpq', [Reg('rax'),Deref(reg2,value2)]) )
+
+            case Instr('movbzq',[arg,value]):
+                if type(value) != Reg():
+                    l_inst.append( Instr('movq',[value,Reg('rax')]) )
+                    l_inst.append( Instr('movbzq', [arg,Reg('rax')]) )
+
             case Instr(command, [Immediate(arg1), Deref(reg2, arg2)]):  # big int
                 if arg1 >= 2**16:
                     l_inst.append( Instr(command, [Immediate(arg1), Reg('rax')]) )
@@ -1117,8 +1265,10 @@ class Compiler:
                     Instr('retq', []),
                 ])
 
+                # main and conclusion jump. BUE! thsi is not ok yet!
+                self.create_block()
+
                 x86program = X86Program(prelude + prog + conclusion)
-                # main and conclusion jump.
 
             case _:
                 raise Exception('Error: Compiler.prelude_and_conclusion case not yet implemented.')
