@@ -322,10 +322,6 @@ class Compiler:
                 newexp, l_tmp =  self.rco_exp(exp, False)  # output: expression and enviroment
                 l_stmt =  [Assign([varc], expc) for varc, expc in l_tmp] + [Assign([Name(var)], newexp)]
 
-            case Expr(exp):  # Lint
-                newexp, l_tmp =  self.rco_exp(exp, False)  # output: expression and enviroment
-                l_stmt = [Assign([varc], expc) for varc, expc in l_tmp]
-
             case Expr(Call(Name('input_int'), [exp])):  # Lvar
                 newexp, l_tmp = self.rco_exp(exp, True)
                 l_stmt = [Assign([varc], expc) for varc, expc in l_tmp]
@@ -333,6 +329,11 @@ class Compiler:
             case Expr(Call(Name('print'), [exp])):  # Lint
                 newexp, l_tmp =  self.rco_exp(exp, True)
                 l_stmt = [Assign([varc], expc) for varc, expc in l_tmp] + [Expr(Call(Name('print'), [newexp]))]
+
+            # bue 20241009: Expr(exp) have to come after  Expr(Call(Name('abc'), [exp]))
+            case Expr(exp):  # Lint
+                newexp, l_tmp =  self.rco_exp(exp, False)  # output: expression and enviroment
+                l_stmt = [Assign([varc], expc) for varc, expc in l_tmp]
 
             case If(exptest, stmthen, stmelse):  # Lif
                 newexptest, l_tmptest = self.rco_exp(exptest, False)
@@ -515,7 +516,7 @@ class Compiler:
                 new_body = [Return(Constant(0))]
                 basic_blocks = {}
                 for s in reversed(body):
-                    new_body = explicate_stmt(s, new_body, basic_blocks)
+                    new_body = self.explicate_stmt(s, new_body, basic_blocks)
                 basic_blocks.update({label_name('start') : new_body})
                 cprogram = CProgram(basic_blocks)
 
