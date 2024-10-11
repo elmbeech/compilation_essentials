@@ -337,12 +337,13 @@ class Compiler:
 
             case If(exptest, stmthen, stmelse):  # Lif
                 newexptest, l_tmptest = self.rco_exp(exptest, False)
-                #l_stmtmptest = [Assign([Name(generate_name('tmp'))], exp) for exp in l_tmptest]
-                l_stmthen = [self.rco_stmt(stm) for stm in stmthen]
-                l_stmelse = [self.rco_stmt(stm)  for stm in stmelse]
+                l_stmthen = []
+                for stm in stmthen:
+                    l_stmthen.extend(self.rco_stmt(stm))
+                l_stmelse = []
+                for stm in stmelse:
+                    l_stmelse.extend(self.rco_stmt(stm))
                 l_stmt = [Assign([varc], expc) for varc, expc in l_tmptest] + [If(newexptest, l_stmthen, l_stmelse)]
-                #l_stmt = l_stmtmptest + [If(newexptest, l_stmthen, l_stmelse)]
-                #l_stmt = l_stmtmptest + [If(newexptest, stmthen, stmelse)]
 
             case _:
                 raise Exception('Error: Compiler.rco_stmt case not yet implemented.')
@@ -373,7 +374,7 @@ class Compiler:
     # explicate control Lif mon -> Cif
     ###########################################################################
 
-    def create_block(stmts : List[stmt], basic_blocks : Dict) -> List:
+    def create_block(self, stmts : List[stmt], basic_blocks : Dict) -> List:
         # bue: this updates the basic_blocks dict
 
         match stmts:
@@ -403,12 +404,16 @@ class Compiler:
                 return Expr(Call(func, args))
 
             case Begin(body, result):
-                new_block = self.create_block(cont, basic_blocks)
-                new_body = self.explicate_effect(body, new_block, basic_blocks)
-                return new_body
+                #new_block = self.create_block(cont, basic_blocks)
+                #new_body = self.explicate_effect(body, new_block, basic_blocks)
+
+                ss = self.explicate_effect(result, cont, basic_blocks)
+                for s in reversed(body):
+                    ss += self.explicare_effect(s, ss, basic_blocks)
+                return ss
 
             case _:
-                pass
+                return cont
 
         #print('EXPLICATE_EFFECT OUTPUT l_stm:', l_stm)
         #return l_stm
@@ -444,8 +449,8 @@ class Compiler:
 
         match cnd:
             case Compare(left, [op], [right]):
-                goto_thn = create_block(thn, basic_blocks)
-                goto_else = create_block(els, basic_blocks)
+                goto_thn = self.create_block(thn, basic_blocks)
+                goto_els = self.create_block(els, basic_blocks)
                 return [If(cnd, goto_thn, goto_els)]
 
             case Constant(True):
@@ -477,8 +482,8 @@ class Compiler:
             case _:
                 l_stm = [If(
                     Compare(cnd, [Eq()], [Constant(False)]),
-                    create_block(els, basic_blocks),
-                    create_block(thn, basic_blocks)
+                    self.create_block(els, basic_blocks),
+                    self.create_block(thn, basic_blocks)
                 )]
 
         #print('EXPLICATE_PRED OUTPUT l_stm:', l_stm)
@@ -508,7 +513,7 @@ class Compiler:
 
 
     def explicate_control(self, p: Module):
-        print('EXPLICATE_CTRL INPUT Module:', ast.dump(p))
+        #print('EXPLICATE_CTRL INPUT Module:', ast.dump(p))
         cprogram = None
 
         match p:
@@ -523,7 +528,7 @@ class Compiler:
             case _:
                 raise Exception('Error: Compiler.explicate_control case not yet implemented.')
 
-        print('EXPLICATE_CTRL INPUT CProgram', cprogram)
+        #print('EXPLICATE_CTRL INPUT CProgram', cprogram)
         return cprogram
 
 
@@ -614,7 +619,6 @@ class Compiler:
                 ]
 
             case Assign([Name(var)], UnaryOp(Not(), operand)):  # Lif expr: operator, operand
-                l_instr = None
                 arg_var = self.select_arg(Name(var))
                 arg_operand = self.select_arg(operand)
                 if arg_var == arg_operand :
@@ -644,7 +648,7 @@ class Compiler:
 
                 if (compare == Eq()):
                     cc = 'e'
-                    l_instr = [
+                    l_inst = [
                         Instr('cmpq', [atm_one, atm_two]),
                         Instr('JumpIf', cc, label1),
                         Instr('Jump', label2)
@@ -653,7 +657,7 @@ class Compiler:
 
                 elif (compare == GtE()):
                     cc ='ge'
-                    l_instr = [
+                    l_inst = [
                         Instr('cmpq', [atm_one, atm_two]),
                         Instr('JumpIf', cc, label1),
                         Instr('Jump', label2)
@@ -661,7 +665,7 @@ class Compiler:
 
                 elif (compare == LtE()):
                     cc = 'le'
-                    l_instr = [
+                    l_inst = [
                         Instr('cmpq', [atm_one, atm_two]),
                         Instr('JumpIf', cc, label1),
                         Instr('Jump', label2)
@@ -669,7 +673,7 @@ class Compiler:
 
                 elif (compare == Lt()):
                     cc = 'l'
-                    l_instr = [
+                    l_inst = [
                         Instr('cmpq', [atm_one, atm_two]),
                         Instr('JumpIf', cc, label1),
                         Instr('Jump', label2)
@@ -677,7 +681,7 @@ class Compiler:
 
                 elif (compare == Gt()):
                     cc = 'g'
-                    l_instr = [
+                    l_inst = [
                         Instr('cmpq', [atm_one, atm_two]),
                         Instr('JumpIf', cc, label1),
                         Instr('Jump', label2)
@@ -685,7 +689,7 @@ class Compiler:
 
                 elif (compare == NotEq()):
                     cc = 'ne'
-                    l_instr = [
+                    l_inst = [
                         Instr('cmpq', [atm_one, atm_two]),
                         Instr('JumpIf', cc, label1),
                         Instr('Jump', label2)
@@ -696,7 +700,7 @@ class Compiler:
 
             case Return(exp):
                 new_exp = self.select_arg(exp)
-                l_instr = [
+                l_inst = [
                     Instr('movq',[new_exp,Reg('rax')]),
                     Jump('conclusion')
                 ]
@@ -858,7 +862,7 @@ class Compiler:
                 e_after = set()
                 d_after = {}
                 d_live_before_block = {}
-                g = build_cfg(p)
+                g = self.build_cfg(p)
                 for s_label  in topological_sort(transpose(g)):
                     for i in body[label][::-1]:
                         # bue 20241008: p84 live before block
