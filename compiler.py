@@ -393,8 +393,6 @@ class Compiler:
     def explicate_effect(self, e : expr, cont : List[stmt], basic_blocks : Dict) -> List[stmt]:
         ''' generate code for expressions as statements, result is ignored, only side effects matter '''
         #print('EXPLICATE_EFFECT INPUT:')
-        #l_stm = None
-        print('BUEEE cont:', cont)
 
         match e:
             case Begin(body, result):
@@ -420,13 +418,11 @@ class Compiler:
                 return cont
 
         #print('EXPLICATE_EFFECT OUTPUT l_stm:', l_stm)
-        #return l_stm
 
 
     def explicate_assign(self, rhs : expr, lhs : expr, cont : List[stmt], basic_blocks : Dict) -> List[stmt]:
         ''' generate code for a rhs right hand side expressions of an assignment '''
         #print('EXPLICATE_ASSIGN INPUT:')
-        #l_stm = None
 
         match rhs:
             case IfExp(test, body, orelse):
@@ -444,13 +440,12 @@ class Compiler:
                 return [Assign([lhs], rhs)] + cont
 
         #print('EXPLICATE_ASSIGN OUTPUT l_stm:', l_stm)
-        #return l_stm
 
 
     def explicate_pred(self, cnd : expr, thn : List[stmt], els : List[stmt], basic_blocks : Dict) -> List[stmt]:
         ''' generate code for if expressions or statement by analyzing the condition expression '''
         #print('EXPLICATE_PRED INPUT:')
-        #l_stm = None
+        l_stm = None
 
         match cnd:
             case Compare(left, [op], [right]):
@@ -495,7 +490,6 @@ class Compiler:
     def explicate_stmt(self, s : stmt, cont : List[stmt], basic_blocks : Dict) -> List[stmt]:
         ''' generate code for statements '''
         #print('EXPLICATE_STMT INPUT:')
-        #l_stm = None
 
         match s:
             case Assign([lhs], rhs):
@@ -511,7 +505,6 @@ class Compiler:
                 raise Exception('Error: Compiler.explicate_stmt case not yet implemented.')
 
         #print('EXPLICATE_STMT OUTPUT l_stm:', l_stm)
-        #return l_stm
 
 
     def explicate_control(self, p: Module):
