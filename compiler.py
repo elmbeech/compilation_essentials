@@ -264,22 +264,22 @@ class Compiler:
                 newexptest, l_tmptest = self.rco_exp(exptest, False)
                 # then
                 newexpthen, l_tmpexpthen = self.rco_exp(expthen, False)
-                l_tmpstmtthen = [Assign([Name(var)], exp) for var, exp in l_tmpexpthen]
-                #l_tmpstmtthen = [Assign([var], exp) for var, exp in l_tmpexpthen]
+                l_tmpstmthen = [Assign([Name(var)], exp) for var, exp in l_tmpexpthen]
+                #l_tmpstmthen = [Assign([var], exp) for var, exp in l_tmpexpthen]
                 # else
                 newexpelse, l_tmpexpelse = self.rco_exp(expelse, False)
-                l_tmpstmtelse = [Assign([Name(var)], exp) for var, exp in l_tmpexpelse]
-                #l_tmpstmtelse = [Assign([var], exp) for var, exp in l_tmpexpelse]
+                l_tmpstmelse = [Assign([Name(var)], exp) for var, exp in l_tmpexpelse]
+                #l_tmpstmelse = [Assign([var], exp) for var, exp in l_tmpexpelse]
                 # ifexp statement
                 # bue 20241009: Begin is part of Lif mon and not part of Lif.
-                if (len(l_tmpstmtthen) == 0) and (len(l_tmpstmtelse) == 0):
+                if (len(l_tmpstmthen) == 0) and (len(l_tmpstmelse) == 0):
                     ifexp = IfExp(newexptest, newexpthen, newexpelse)
-                elif (len(l_tmpstmtthen) == 0) and (len(l_tmpstmtelse) != 0):
-                    ifexp = IfExp(newexptest, newexpthen, Begin(l_tmpstmtelse, newexpelse))
-                elif (len(l_tmpstmtthen) != 0) and (len(l_tmpstmtelse) == 0):
-                    ifexp = IfExp(newexptest, Begin(l_tmpstmtthen, newexpthen), newexpelse)
+                elif (len(l_tmpstmthen) == 0) and (len(l_tmpstmelse) != 0):
+                    ifexp = IfExp(newexptest, newexpthen, Begin(l_tmpstmelse, newexpelse))
+                elif (len(l_tmpstmthen) != 0) and (len(l_tmpstmelse) == 0):
+                    ifexp = IfExp(newexptest, Begin(l_tmpstmthen, newexpthen), newexpelse)
                 else:
-                    ifexp = IfExp(newexptest, Begin(l_tmpstmtthen, newexpthen), Begin(l_tmpstmtelse, newexpelse))
+                    ifexp = IfExp(newexptest, Begin(l_tmpstmthen, newexpthen), Begin(l_tmpstmelse, newexpelse))
                 print('RCO_EXP OUTPUT ifexp:', ifexp, l_tmptest)
                 return (ifexp, l_tmptest)
 
@@ -315,41 +315,44 @@ class Compiler:
 
     def rco_stmt(self, s: stmt) -> List[stmt]:
         print('RCO_STMT INPUT stmt:', ast.dump(s))
-        l_stmt = None
+        l_stm = None
 
         match s:
             case Assign([Name(var)], exp):  # Lvar
                 newexp, l_tmp =  self.rco_exp(exp, False)  # output: expression and enviroment
-                l_stmt =  [Assign([varc], expc) for varc, expc in l_tmp] + [Assign([Name(var)], newexp)]
+                l_stm =  [Assign([varc], expc) for varc, expc in l_tmp] + [Assign([Name(var)], newexp)]
 
             case Expr(Call(Name('input_int'), [exp])):  # Lvar
                 newexp, l_tmp = self.rco_exp(exp, True)
-                l_stmt = [Assign([varc], expc) for varc, expc in l_tmp]
+                l_stm = [Assign([varc], expc) for varc, expc in l_tmp]
 
             case Expr(Call(Name('print'), [exp])):  # Lint
                 newexp, l_tmp =  self.rco_exp(exp, True)
-                l_stmt = [Assign([varc], expc) for varc, expc in l_tmp] + [Expr(Call(Name('print'), [newexp]))]
+                l_stm = [Assign([varc], expc) for varc, expc in l_tmp] + [Expr(Call(Name('print'), [newexp]))]
 
             # bue 20241009: Expr(exp) have to come after  Expr(Call(Name('abc'), [exp]))
             case Expr(exp):  # Lint
                 newexp, l_tmp =  self.rco_exp(exp, False)  # output: expression and enviroment
-                l_stmt = [Assign([varc], expc) for varc, expc in l_tmp]
+                l_stm = [Assign([varc], expc) for varc, expc in l_tmp]
 
             case If(exptest, stmthen, stmelse):  # Lif
                 newexptest, l_tmptest = self.rco_exp(exptest, False)
+                # then
                 l_stmthen = []
                 for stm in stmthen:
                     l_stmthen.extend(self.rco_stmt(stm))
+                # else
                 l_stmelse = []
                 for stm in stmelse:
                     l_stmelse.extend(self.rco_stmt(stm))
-                l_stmt = [Assign([varc], expc) for varc, expc in l_tmptest] + [If(newexptest, l_stmthen, l_stmelse)]
+                # output
+                l_stm = [Assign([varc], expc) for varc, expc in l_tmptest] + [If(newexptest, l_stmthen, l_stmelse)]
 
             case _:
                 raise Exception('Error: Compiler.rco_stmt case not yet implemented.')
 
-        print('RCO_STMT OUTPUT l_stmt:', l_stmt)
-        return l_stmt
+        print('RCO_STMT OUTPUT l_stm:', l_stm)
+        return l_stm
 
 
     def remove_complex_operands(self, p: Module) -> Module:
@@ -358,10 +361,10 @@ class Compiler:
 
         match p:
             case Module(body):  # Lint
-                l_stmt = []
-                for stmt in body:
-                    l_stmt.extend(self.rco_stmt(stmt))
-                module = Module(l_stmt)
+                l_stm = []
+                for stm in body:
+                    l_stm.extend(self.rco_stmt(stm))
+                module = Module(l_stm)
 
             case _:
                 raise Exception('Error: Compiler.remove_complex_operands case not yet implemented.')
@@ -374,7 +377,7 @@ class Compiler:
     # explicate control Lif mon -> Cif
     ###########################################################################
 
-    def create_block(self, stmts : List[stmt], basic_blocks : Dict) -> List:
+    def create_block(self, stmts : List[stmt], basic_blocks : Dict) -> List[stmt]:
         # bue: this updates the basic_blocks dict
 
         match stmts:
@@ -391,49 +394,51 @@ class Compiler:
         ''' generate code for expressions as statements, result is ignored, only side effects matter '''
         #print('EXPLICATE_EFFECT INPUT:')
         #l_stm = None
+        print('BUEEE cont:', cont)
 
         match e:
-            case IfExp(test, body, orelse):
-                cont_block = self.create_block(cont, basic_blocks)
-                body_block = self.create_block(body, basic_blocks)
-                orelse_block = self.create_block(orelse, basic_blocks)
-                new_test = self.explicate_pred(test, body_block, orelse_block, basic_blocks)
-                return new_test
-
-            case Call(func, args):
-                return Expr(Call(func, args))
-
             case Begin(body, result):
                 #new_block = self.create_block(cont, basic_blocks)
                 #new_body = self.explicate_effect(body, new_block, basic_blocks)
-
                 ss = self.explicate_effect(result, cont, basic_blocks)
                 for s in reversed(body):
                     ss += self.explicare_effect(s, ss, basic_blocks)
                 return ss
 
-            case _:
+            case Call(func, args):
+                return [Expr(Call(func, args))] + cont
+
+            case IfExp(test, body, orelse):
+                #body_block = self.explicate_effect(body, basic_blocks)
+                #orelse_block = self.explicate_effect(orelse, basic_blocks)
+                body_block = self.create_block(body, basic_blocks)
+                orelse_block = self.create_block(orelse, basic_blocks)
+                new_test = self.explicate_pred(test, body_block, orelse_block, basic_blocks)
+                return new_test + cont
+
+            case _:  # Constant(var)
                 return cont
 
         #print('EXPLICATE_EFFECT OUTPUT l_stm:', l_stm)
         #return l_stm
 
 
-    def explicate_assign(self, rhs, lhs, cont : List[stmt], basic_blocks : Dict) -> List[stmt]:
-        ''' generate code for a right hand side expressions of an assignment '''
+    def explicate_assign(self, rhs : expr, lhs : expr, cont : List[stmt], basic_blocks : Dict) -> List[stmt]:
+        ''' generate code for a rhs right hand side expressions of an assignment '''
         #print('EXPLICATE_ASSIGN INPUT:')
         #l_stm = None
 
         match rhs:
             case IfExp(test, body, orelse):
-                cont_block = self.create_block(cont, basic_blocks)
-                body_assign = self.explicate_assign(body, lhs, cont_block, basic_blocks)
-                return [Assign([lhs], body_assign)] + cont_block
+                body_assign = self.explicate_assign(body, lhs, cont, basic_blocks)
+                orelse_assign = self.explicate_assign(orelse, lhs, cont, basic_blocks)
+                ifexp_pred = self.explicate_pred(test, body_assign, orelse_assign, basic_blocks)
+                return ifexp_pred + cont
 
             case Begin(body, result):
-                cont_block = self.create_block(cont, basic_blocks)
+                #cont_block = self.create_block(cont, basic_blocks)
                 new_body = self.explicate_assign(body, lhs, cont_block, basic_blocks)
-                return [Assign(lhs, new_body)] + cont_block
+                return [Assign(lhs, new_body)] + cont
 
             case _:
                 return [Assign([lhs], rhs)] + cont
@@ -451,7 +456,7 @@ class Compiler:
             case Compare(left, [op], [right]):
                 goto_thn = self.create_block(thn, basic_blocks)
                 goto_els = self.create_block(els, basic_blocks)
-                return [If(cnd, goto_thn, goto_els)]
+                l_stm = [If(cnd, goto_thn, goto_els)]
 
             case Constant(True):
                 return thn
@@ -462,35 +467,32 @@ class Compiler:
             case UnaryOp(Not(), operand):
                 goto_thn = self.create_block(thn, basic_blocks)
                 goto_els = self.create_block(els, basic_blocks)
-                o1 = self.explicate_pred(operand, goto_thn, goto_els, basic_blocks)
-                return o1
+                l_stm = self.explicate_pred(operand, goto_thn, goto_els, basic_blocks)
 
             case IfExp(test, body, orelse):
                 goto_thn = self.create_block(thn, basic_blocks)
                 goto_els = self.create_block(els, basic_blocks)
-                b1 = self.explicate_pred(body, goto_thn, goto_els, basic_blocks)
-                o1 = self.explicate_pred(orelse, goto_thn, goto_els, basic_blocks)
-                new_test = self.explicate_pred(test, b1, o1, basic_blocks)
-                return new_test
+                body_pred = self.explicate_pred(body, goto_thn, goto_els, basic_blocks)
+                orelse_pred = self.explicate_pred(orelse, goto_thn, goto_els, basic_blocks)
+                l_stm = self.explicate_pred(test, body_pred, orelse_pred, basic_blocks)
 
             case Begin(body, result):
                 goto_thn = self.create_block(thn, basic_blocks)
                 goto_els = self.create_block(els, basic_blocks)
-                new_body = self.explicate_pred(body, goto_thn, goto_els, basic_blocks)
-                return new_body
+                l_stm = self.explicate_pred(body, goto_thn, goto_els, basic_blocks)
 
             case _:
                 l_stm = [If(
                     Compare(cnd, [Eq()], [Constant(False)]),
                     self.create_block(els, basic_blocks),
-                    self.create_block(thn, basic_blocks)
+                    self.create_block(thn, basic_blocks),
                 )]
 
         #print('EXPLICATE_PRED OUTPUT l_stm:', l_stm)
-        #return l_stm
+        return l_stm
 
 
-    def explicate_stmt(self, s : stmt, cont : List, basic_blocks : Dict) -> List[stmt]:
+    def explicate_stmt(self, s : stmt, cont : List[stmt], basic_blocks : Dict) -> List[stmt]:
         ''' generate code for statements '''
         #print('EXPLICATE_STMT INPUT:')
         #l_stm = None
@@ -503,7 +505,7 @@ class Compiler:
                 return self.explicate_effect(value, cont, basic_blocks)
 
             case If(test, body, orelse):  # bue 20241006
-                return self.explicate_pred(test, body, orelse, basic_blocks)
+                return self.explicate_pred(test, body, orelse, basic_blocks) + cont
 
             case _:
                 raise Exception('Error: Compiler.explicate_stmt case not yet implemented.')
@@ -712,12 +714,12 @@ class Compiler:
         return l_inst
 
 
-    def select_instructions(self, p: Module) -> X86Program:
-        print('SELECT_INSTRUCTIONS INPUT Module:', ast.dump(p))
+    def select_instructions(self, p: CProgram) -> X86Program:  # is this Module or CProgram
+        #print('SELECT_INSTRUCTIONS INPUT Module:', ast.dump(p))
         x86program = None
 
         match p:
-            case Module(body):
+            case CProgram(body):
                 d_body = {}
                 # BUE 20241008: this might through an error
                 for s_label, l_stmt in body.items():
@@ -864,7 +866,7 @@ class Compiler:
                 d_live_before_block = {}
                 g = self.build_cfg(p)
                 for s_label  in topological_sort(transpose(g)):
-                    for i in body[label][::-1]:
+                    for i in body[s_label][::-1]:
                         # bue 20241008: p84 live before block
                         e_read = self.read_vars(i)
                         e_write = self.write_vars(i)
@@ -1280,7 +1282,7 @@ class Compiler:
                 ])
 
                 # main and conclusion jump. BUE! thsi is not ok yet!
-                self.create_block()
+                #self.create_block()
 
                 x86program = X86Program(prelude + prog + conclusion)
 
