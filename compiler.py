@@ -852,7 +852,8 @@ class Compiler:
                     for i in l_stmt:
                         match i:
                             case Jump(dst):
-                                g.add_edge(src, dst)
+                                if (dst != 'conclusion'):
+                                    g.add_edge(src, dst)
 
                             case JumpIf(cc, dst):
                                 g.add_edge(src, dst)
