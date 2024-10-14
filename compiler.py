@@ -260,6 +260,7 @@ class Compiler:
                 return (compare, [])
 
             case IfExp(exptest, expthen, expelse):  # Lif
+                print("THIS IS IFEXP")
                 # test
                 newexptest, l_tmptest = self.rco_exp(exptest, False)
                 # then
@@ -280,6 +281,10 @@ class Compiler:
                     ifexp = IfExp(newexptest, Begin(l_tmpstmthen, newexpthen), newexpelse)
                 else:
                     ifexp = IfExp(newexptest, Begin(l_tmpstmthen, newexpthen), Begin(l_tmpstmelse, newexpelse))
+                if need_atomic:
+                    tmp = Name(generate_name('tmp'))
+                    print('RCO_EXP OUTPUT not complex:', (tmp, l_tmptest + [(tmp, ifexp)]))
+                    return (tmp, l_tmptest + [(tmp, ifexp)])
                 print('RCO_EXP OUTPUT ifexp:', ifexp, l_tmptest)
                 return (ifexp, l_tmptest)
 
@@ -1013,7 +1018,6 @@ class Compiler:
                                 doe_colorm[o_node].add(doi_color[o_adj])
                         except KeyError:
                             pass
-                print('BUE:', doe_colorm)
                 return len(doe_colorm[x.key].difference(doe_satur[x.key])) <= len(doe_colorm[y.key].difference(doe_satur[y.key]))
             else:
                 return len(doe_satur[x.key]) < len(doe_satur[y.key])
