@@ -699,7 +699,7 @@ class Compiler:
                             Jump(label2)
                         ]
 
-                    else:
+                    case _:
                         raise Exception('Error: Compiler.select_stmt If Compare case not yet implemented.')
 
             case Return(exp):
@@ -855,9 +855,11 @@ class Compiler:
                 for src, l_stmt in body.items():
                     for i in l_stmt:
                         match i:
+                            case Jump('conclusion'):
+                                pass
+
                             case Jump(dst):
-                                if (dst != 'conclusion'):
-                                    g.add_edge(src, dst)
+                                g.add_edge(src, dst)
 
                             case JumpIf(cc, dst):
                                 g.add_edge(src, dst)
@@ -887,6 +889,9 @@ class Compiler:
                         e_location = e_location.union(e_read.union(e_write))
 
                         match i:
+                            case Jump('conclusion'):
+                                pass
+
                             case Jump(block):
                                 e_after = d_live_before_block[block]
 
