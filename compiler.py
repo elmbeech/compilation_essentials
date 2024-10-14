@@ -417,7 +417,7 @@ class Compiler:
                 body_block = self.create_block(body, basic_blocks)
                 orelse_block = self.create_block(orelse, basic_blocks)
                 new_test = self.explicate_pred(test, body_block, orelse_block, basic_blocks)
-                return new_test + cont
+                return new_test
 
             case _:  # Constant(var)
                 return cont
@@ -439,7 +439,7 @@ class Compiler:
             case Begin(body, result):
                 #cont_block = self.create_block(cont, basic_blocks)
                 new_body = self.explicate_assign(body, lhs, cont_block, basic_blocks)
-                return [Assign(lhs, new_body)] + cont
+                return [Assign(lhs, new_body)]
 
             case _:
                 return [Assign([lhs], rhs)] + cont
@@ -636,67 +636,71 @@ class Compiler:
                     Callq(label_name('print_int'), []),
                 ]
 
+            case Goto(label):
+                l_inst = [Jump(label)]
+
             # bue 20240915: is terminal. resolved on the select_instructions level.
             #case Expr(exp):  # Lint stmt
             #    arg_exp = self.select_arg(exp)
             #    l_inst = []
 
-            case If(Compare(atm1, [comp], [atm2], [Goto(label1)], [Goto(label2)])):
+            case If(Compare(atm1, [cmp], [atm2]), [Goto(label1)], [Goto(label2)]):
 
                 atm_one = self.select_arg(atm1)
                 atm_two = self.select_arg(atm2)
 
-                if (compare == Eq()):
-                    cc = 'e'
-                    l_inst = [
-                        Instr('cmpq', [atm_one, atm_two]),
-                        Instr('JumpIf', cc, label1),
-                        Instr('Jump', label2)
+                match cmp:
 
-                    ]
+                    case Eq():
+                        cc = 'e'
+                        l_inst = [
+                            Instr('cmpq', [atm_one, atm_two]),
+                            JumpIf(cc, label1),
+                            Jump(label2)
+                        ]
 
-                elif (compare == GtE()):
-                    cc ='ge'
-                    l_inst = [
-                        Instr('cmpq', [atm_one, atm_two]),
-                        Instr('JumpIf', cc, label1),
-                        Instr('Jump', label2)
-                    ]
+                    case Gt():
+                        cc = 'g'
+                        l_inst = [
+                            Instr('cmpq', [atm_one, atm_two]),
+                            JumpIf(cc, label1),
+                            Jump(label2)
+                        ]
 
-                elif (compare == LtE()):
-                    cc = 'le'
-                    l_inst = [
-                        Instr('cmpq', [atm_one, atm_two]),
-                        Instr('JumpIf', cc, label1),
-                        Instr('Jump', label2)
-                    ]
+                    case GtE():
+                        cc ='ge'
+                        l_inst = [
+                            Instr('cmpq', [atm_one, atm_two]),
+                            JumpIf(cc, label1),
+                            Jump(label2)
+                        ]
 
-                elif (compare == Lt()):
-                    cc = 'l'
-                    l_inst = [
-                        Instr('cmpq', [atm_one, atm_two]),
-                        Instr('JumpIf', cc, label1),
-                        Instr('Jump', label2)
-                    ]
+                    case LtE():
+                        cc = 'le'
+                        l_inst = [
+                            Instr('cmpq', [atm_one, atm_two]),
+                            JumpIf(cc, label1),
+                            Jump(label2)
+                        ]
 
-                elif (compare == Gt()):
-                    cc = 'g'
-                    l_inst = [
-                        Instr('cmpq', [atm_one, atm_two]),
-                        Instr('JumpIf', cc, label1),
-                        Instr('Jump', label2)
-                    ]
+                    case Lt():
+                        cc = 'l'
+                        l_inst = [
+                            Instr('cmpq', [atm_one, atm_two]),
+                            JumpIf(cc, label1),
+                            Jump(label2)
+                        ]
 
-                elif (compare == NotEq()):
-                    cc = 'ne'
-                    l_inst = [
-                        Instr('cmpq', [atm_one, atm_two]),
-                        Instr('JumpIf', cc, label1),
-                        Instr('Jump', label2)
-                    ]
+                    case NotEq():
+                        cc = 'ne'
+                        l_inst = [
+                            Instr('cmpq', [atm_one, atm_two]),
+                            JumpIf(cc, label1),
+                            Jump(label2)
+                        ]
 
-                else:
-                    raise Exception('Error: Compiler.select_stmt If Compare case not yet implemented.')
+                    else:
+                        raise Exception('Error: Compiler.select_stmt If Compare case not yet implemented.')
 
             case Return(exp):
                 new_exp = self.select_arg(exp)
@@ -706,7 +710,7 @@ class Compiler:
                 ]
 
             case _:
-                raise Exception('Error: Compiler.select_stmt case not yet implemented.')
+                raise Exception('Error: Compiler.select_stmt case not yet implemented.' + repr(s))
 
         print('SELECT_STMT OUTPUT l_inst:', l_inst)
         return l_inst
