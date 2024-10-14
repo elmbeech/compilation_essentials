@@ -739,46 +739,55 @@ class Compiler:
         e_read = set()
 
         match i:
-            # bue 2024-09-18 nop: popq pushq
+            # bue 2024-09-18 nop: popq pushq are stack operations.
+
+            # set*: reads the eflag register.
+            case Instr('sete', [ByteReg(arg)]) | Instr('setne', [ByteReg(arg)]) | Instr('setl', [ByteReg(arg)]) | Instr('setle', [ByteReg(arg)]) | Instr('setg', [ByteReg(arg)]) | Instr('setge', [ByteReg(arg)]):  # br
+                e_read.add(ByteReg(arg))
+
+            # movzbq
+            case Instr('movizbq', [RegByte(arg1), arg2]):  # bi, br, bv
+                e_read.add(RegByte(arg1))
+
             # negq
-            case Instr('negq', [Reg(arg)]):  # r
-               e_read.add(Reg(arg))
+            case Instr('negq', [Reg(arg)]): # r
+                e_read.add(Reg(arg))
 
-            # movq
-            case Instr('movq', [Reg(arg1), arg2]):  # ri, rr, rv
-               e_read.add(Reg(arg1))
+            # movq, movzbq
+            case Instr('movq', [Reg(arg1), arg2]) | Instr('movzbq', [Reg(arg1), arg2]):  # ri, rr, rv
+                e_read.add(Reg(arg1))
 
-            case Instr('movq', [Variable(arg1), arg2]):  # vi, vr, vv
-               e_read.add(Variable(arg1))
+            case Instr('movq', [Variable(arg1), arg2]) | Instr('movzbq', [Variable(arg1), arg2]):  # vi, vr, vv
+                e_read.add(Variable(arg1))
 
-            # addq or subq
-            case Instr('addq', [Immediate(arg1), Reg(arg2)]) | Instr('subq', [Immediate(arg1), Reg(arg2)]):  # ir
-               e_read.add(Reg(arg2))
+            # addq, subq, cmpq, xorq
+            case Instr('addq', [Immediate(arg1), Reg(arg2)]) | Instr('subq', [Immediate(arg1), Reg(arg2)]) | Instr('cmpq', [Immediate(arg1), Reg(arg2)]) | Instr('xorq', [Immediate(arg1), Reg(arg2)]):  # ir
+                e_read.add(Reg(arg2))
 
-            case Instr('addq', [Immediate(arg1), Variable(arg2)]) | Instr('subq', [Immediate(arg1), Variable(arg2)]):  # iv
-               e_read.add(Variable(arg2))
+            case Instr('addq', [Immediate(arg1), Variable(arg2)]) | Instr('subq', [Immediate(arg1), Variable(arg2)]) | Instr('cmpq', [Immediate(arg1), Variable(arg2)]) | Instr('xorq', [Immediate(arg1), Reg(arg2)]):  # iv
+                e_read.add(Variable(arg2))
 
-            case Instr('addq', [Reg(arg1), Immediate(arg2)]) | Instr('subq', [Reg(arg1), Immediate(arg2)]):  # ri
-               e_read.add(Reg(arg1))
+            case Instr('addq', [Reg(arg1), Immediate(arg2)]) | Instr('subq', [Reg(arg1), Immediate(arg2)]) | Instr('cmpq', [Reg(arg1), Immediate(arg2)]) | Instr('xorq', [Immediate(arg1), Reg(arg2)]):  # ri
+                e_read.add(Reg(arg1))
 
-            case Instr('addq', [Reg(arg1), Reg(arg2)]) | Instr('subq', [Reg(arg1), Reg(arg2)]):  # rr
-               e_read.add(Reg(arg1))
-               e_read.add(Reg(arg2))
+            case Instr('addq', [Reg(arg1), Reg(arg2)]) | Instr('subq', [Reg(arg1), Reg(arg2)]) | Instr('cmpq', [Reg(arg1), Reg(arg2)]) | Instr('xorq', [Immediate(arg1), Reg(arg2)]):  # rr
+                e_read.add(Reg(arg1))
+                e_read.add(Reg(arg2))
 
-            case Instr('addq', [Reg(arg1), Variable(arg2)]) | Instr('subq', [Reg(arg1), Variable(arg2)]):  # rv
-               e_read.add(Reg(arg1))
-               e_read.add(Variable(arg2))
+            case Instr('addq', [Reg(arg1), Variable(arg2)]) | Instr('subq', [Reg(arg1), Variable(arg2)]) | Instr('cmpq', [Reg(arg1), Variable(arg2)]) | Instr('xorq', [Immediate(arg1), Reg(arg2)]):  # rv
+                e_read.add(Reg(arg1))
+                e_read.add(Variable(arg2))
 
-            case Instr('addq', [Variable(arg1), Immediate(arg2)]) | Instr('subq', [Variable(arg1), Immediate(arg2)]):  # vi
-               e_read.add(Variable(arg1))
+            case Instr('addq', [Variable(arg1), Immediate(arg2)]) | Instr('subq', [Variable(arg1), Immediate(arg2)]) | Instr('cmpq', [Variable(arg1), Immediate(arg2)]) | Instr('xorq', [Immediate(arg1), Reg(arg2)]):  # vi
+                e_read.add(Variable(arg1))
 
-            case Instr('addq', [Variable(arg1), Reg(arg2)]) | Instr('subq', [Variable(arg1), Reg(arg2)]):  # vr
-               e_read.add(Variable(arg1))
-               e_read.add(Reg(arg2))
+            case Instr('addq', [Variable(arg1), Reg(arg2)]) | Instr('subq', [Variable(arg1), Reg(arg2)]) | Instr('cmpq', [Variable(arg1), Reg(arg2)]) | Instr('xorq', [Immediate(arg1), Reg(arg2)]):  # vr
+                e_read.add(Variable(arg1))
+                e_read.add(Reg(arg2))
 
-            case Instr('addq', [Variable(arg1), Variable(arg2)]) | Instr('subq', [Variable(arg1), Variable(arg2)]):  # vv
-               e_read.add(Variable(arg1))
-               e_read.add(Variable(arg2))
+            case Instr('addq', [Variable(arg1), Variable(arg2)]) | Instr('subq', [Variable(arg1), Variable(arg2)]) | Instr('cmpq', [Variable(arg1), Variable(arg2)]) | Instr('xorq', [Immediate(arg1), Reg(arg2)]):  # vv
+                e_read.add(Variable(arg1))
+                e_read.add(Variable(arg2))
 
             # callq
             case Callq('print', i_parameter):  # read form e_reg_caller_saved function register
@@ -798,13 +807,16 @@ class Compiler:
 
         match i:
             # bue 2024-09-18 nop: popq pushq
-            case Instr('negq', [Reg(arg)]):  # r
+            # bue 2024-10-13 nop: cmpq (writes into the eflag register)
+
+            # negq or set*
+            case Instr('negq', [Reg(arg)]) | Instr('sete', [Reg(arg)]) | Instr('setne', [Reg(arg)]) | Instr('setl', [Reg(arg)]) | Instr('setle', [Reg(arg)]) | Instr('setg', [Reg(arg)]) | Instr('setge', [Reg(arg)]):  # r
                 e_write.add(Reg(arg))
 
-            case Instr('negq', [Variable(arg)]):  # v
+            case Instr('negq', [Variable(arg)]) | Instr('sete', [Variable(arg)]) | Instr('setne', [Variable(arg)]) | Instr('setl', [Variable(arg)]) | Instr('setle', [Variable(arg)]) | Instr('setg', [Variable(arg)]) | Instr('setge', [Variable(arg)]):  # v
                 e_write.add(Variable(arg))
 
-            # addq, movq, subq
+            # addq, movq, movzbq, subq, xorq
             case Instr(command, [arg1, Reg(arg2)]):  # ir, rr, vr
                 e_write.add(Reg(arg2))
 
@@ -853,20 +865,30 @@ class Compiler:
 
         match p:
             case X86Program(body):
-                e_location = set()
-                e_after = set()
-                d_after = {}
-                d_live_before_block = {}
                 g = self.build_cfg(p)
+                d_live_before_block = {}
+                e_location = set()
+                d_after = {}
                 for s_label  in topological_sort(transpose(g)):
+                    e_after = set()
                     for i in body[s_label][::-1]:
-                        # bue 20241008: p84 live before block
                         e_read = self.read_vars(i)
                         e_write = self.write_vars(i)
+                        e_location = e_location.union(e_read.union(e_write))
+
+                        match i:
+                            case Jump(block):
+                                e_after = d_live_before_block[block]
+
+                            case JumpIf(cc,block):
+                                e_after = d_live_before_block[block].union(e_after)
+
+                            case _:
+                                pass
+
                         e_before = (e_after.difference(e_write)).union(e_read)
                         d_after.update({i: e_after})
                         e_after = e_before
-                        e_location = e_location.union(e_read.union(e_write))
                     d_live_before_block.update({s_label : e_before})
 
             case _:
