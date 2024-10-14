@@ -755,7 +755,7 @@ class Compiler:
                 e_read.add(ByteReg(arg))
 
             # movzbq
-            case Instr('movizbq', [RegByte(arg1), arg2]):  # bi, br, bv
+            case Instr('movzbq', [RegByte(arg1), arg2]):  # bi, br, bv
                 e_read.add(RegByte(arg1))
 
             # negq
@@ -1150,13 +1150,16 @@ class Compiler:
                     self.stack_space -= 8
                     d_var_to_memory.update({var : Deref('rbp', self.stack_space)})
 
-                # translate x86var to x86
-                l_inst = []
+                # translate x86if to x86
+                d_inst = {}
                 self.stack_space = 0
-                for i in program:
-                    instruction = self.assign_homes_instr(i, d_var_to_memory)
-                    l_inst.append(instruction)
-                x86program = X86Program(l_inst)
+                for s_block, l_block in program.items():
+                    l_inst = []
+                    for i in l_block:
+                        instruction = self.assign_homes_instr(i, d_var_to_memory)
+                        l_inst.append(instruction)
+                    d_inst.update({s_block : l_inst})
+                x86program = X86Program(d_inst)
 
                 # bue: how to add an ast field? am going instance global!
                 self.i_spilled = len(e_var_spilled)
@@ -1253,10 +1256,13 @@ class Compiler:
 
         match p:
             case X86Program(program):
-                l_inst = []
-                for i in program:
-                    l_inst.extend(self.patch_instr(i))
-                x86program = X86Program(l_inst)
+                d_inst = {}
+                for s_block, l_block in program.items():
+                    l_inst = []
+                    for i in l_block:
+                        l_inst.extend(self.patch_instr(i))
+                    d_inst.update({s_block : l_inst})
+                x86program = X86Program(d_inst)
 
             case _:
                 raise Exception('Error: Compiler.patch_instructions case not yet implemented.')
@@ -1282,6 +1288,7 @@ class Compiler:
                     alignment = 16
                 )
 
+                # prelude
                 prelude = [
                     # stor base pointer
                     Instr('pushq', [Reg('rbp')]),
@@ -1294,7 +1301,10 @@ class Compiler:
                     prelude.append(
                         Instr('movq', [register,  Deref('rbp', - frame_space + ((n + 1) * 8 ))])
                     )
+                    prelude.append(Jump('start'))
+                prog.update({'main' : prelude})
 
+                # conclusion
                 conclusion = []
                 for n, register in enumerate(self.used_callee):
                     # recall callee saved register
@@ -1309,14 +1319,14 @@ class Compiler:
                     # retun ctrl to os
                     Instr('retq', []),
                 ])
+                prog.update({'conclusion' : conclusion})
 
                 # main and conclusion jump. BUE! thsi is not ok yet!
-                #self.create_block()
+                x86program = X86Program(prog)
 
-                x86program = X86Program(prelude + prog + conclusion)
 
             case _:
                 raise Exception('Error: Compiler.prelude_and_conclusion case not yet implemented.')
 
-        print('PRELUDE_AND_CONCLUSION OUTPUT X86Program:', x86program)
+        #print('PRELUDE_AND_CONCLUSION OUTPUT X86Program:', x86program)
         return x86program
