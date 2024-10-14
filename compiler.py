@@ -422,7 +422,7 @@ class Compiler:
             case _:  # Constant(var)
                 return cont
 
-        #print('EXPLICATE_EFFECT OUTPUT l_stm:', l_stm)
+        #print('EXPLICATE_EFFECT OUTPUT :',)
 
 
     def explicate_assign(self, rhs : expr, lhs : expr, cont : List[stmt], basic_blocks : Dict) -> List[stmt]:
@@ -444,7 +444,7 @@ class Compiler:
             case _:
                 return [Assign([lhs], rhs)] + cont
 
-        #print('EXPLICATE_ASSIGN OUTPUT l_stm:', l_stm)
+        #print('EXPLICATE_ASSIGN OUTPUT :',)
 
 
     def explicate_pred(self, cnd : expr, thn : List[stmt], els : List[stmt], basic_blocks : Dict) -> List[stmt]:
@@ -488,7 +488,7 @@ class Compiler:
                     self.create_block(thn, basic_blocks),
                 )]
 
-        #print('EXPLICATE_PRED OUTPUT l_stm:', l_stm)
+        #print('EXPLICATE_PRED OUTPUT :',)
         return l_stm
 
 
@@ -509,11 +509,11 @@ class Compiler:
             case _:
                 raise Exception('Error: Compiler.explicate_stmt case not yet implemented.')
 
-        #print('EXPLICATE_STMT OUTPUT l_stm:', l_stm)
+        #print('EXPLICATE_STMT OUTPUT :',)
 
 
     def explicate_control(self, p: Module):
-        #print('EXPLICATE_CTRL INPUT Module:', ast.dump(p))
+        print('EXPLICATE_CTRL INPUT Module:', repr(p))
         cprogram = None
 
         match p:
@@ -528,7 +528,7 @@ class Compiler:
             case _:
                 raise Exception('Error: Compiler.explicate_control case not yet implemented.')
 
-        #print('EXPLICATE_CTRL INPUT CProgram', cprogram)
+        print('EXPLICATE_CTRL INPUT CProgram', repr(cprogram))
         return cprogram
 
 
@@ -543,21 +543,20 @@ class Compiler:
         arg_var = None
 
         match e:
+            case Constant(True):  # Lif atom
+                arg_var = Immediate(1)
+
+            case Constant(False):  # Lif atom
+                arg_var = Immediate(0)
+
             case Constant(var):  # Lint atom
-                if var:
-                    arg_var = Immediate(1)
-
-                elif not var:
-                    arg_var = Immediate(0)
-
-                else:
-                    arg_var = Immediate(var)
+                arg_var = Immediate(var)
 
             case Name(var):  # Lvar atom
                 arg_var = Variable(var)
 
             case _:
-                raise Exception('Error: Compiler.select_arg case not yet implemented.')
+                raise Exception('Error: Compiler.select_arg case not yet implemented.', repr(e))
 
         print('SELECT_ARG OUTPUT arg:', arg_var)
         return arg_var
@@ -717,7 +716,7 @@ class Compiler:
 
 
     def select_instructions(self, p: CProgram) -> X86Program:  # is this Module or CProgram
-        #print('SELECT_INSTRUCTIONS INPUT Module:', ast.dump(p))
+        print('SELECT_INSTRUCTIONS INPUT Module:', repr(p))
         x86program = None
 
         match p:
@@ -734,7 +733,7 @@ class Compiler:
             case _:
                 raise Exception('Error: Compiler.select_instructions case not yet implemented.')
 
-        print('SELECT_INSTRUCTIONS OUTPUT x86program:', x86program)
+        print('SELECT_INSTRUCTIONS OUTPUT x86program:', repr(x86program))
         return x86program
 
 
@@ -867,12 +866,12 @@ class Compiler:
                             case _:
                                 pass
 
-        print('BUILD_CFG OUTPUT:', g.show())
+        #print('BUILD_CFG OUTPUT:', g.show())
         return g
 
 
     def uncover_live(self, p: X86Program) -> Dict[instr, Set[location]]:
-        print('UNCOVER_LIVE INPUT:', p)
+        print('UNCOVER_LIVE INPUT:', repr(p))
         d_after = None
 
         match p:
@@ -909,7 +908,7 @@ class Compiler:
             case _:
                 raise Exception('Error: Compiler.select_instructions case not yet implemented.')
 
-        print('UNCOVER_LIVE OUTPU dict:', d_after)
+        print('UNCOVER_LIVE OUTPU dict set:', d_after, e_location)
         return (d_after, e_location)
 
 
@@ -921,7 +920,7 @@ class Compiler:
     # register allocation chapter 4 section 4.7 move biasing
 
     def build_interference(self, p: X86Program, live_after: Dict[instr, Set[location]]) -> UndirectedAdjList:
-        print('BUILD_INTERFERENCE INPUT:', p)
+        print('BUILD_INTERFERENCE INPUT:', repr(p))
         g = None
 
         match p:
@@ -961,7 +960,7 @@ class Compiler:
 
 
     def build_movegraph(self, p: X86Program) -> UndirectedAdjList:
-        print('BUILD_MOVEGRAPH INPUT:', p)
+        print('BUILD_MOVEGRAPH INPUT:', repr(p))
         g = None
 
         match p:
@@ -1169,7 +1168,7 @@ class Compiler:
             case _:
                 raise Exception('Error: Compiler.assign_homes case not yet implemented.')
 
-        print('ALLOCATE_REGISTERS OUTPUT X86Program:', x86program)
+        print('ALLOCATE_REGISTERS OUTPUT X86Program:', repr(x86program))
         return x86program
 
 
@@ -1187,7 +1186,7 @@ class Compiler:
             case _:
                 raise Exception('Error: Compiler.assign_homes case not yet implemented.')
 
-        print('ASSIGN_HOMES OUTPUT X86Program:', x86program)
+        print('ASSIGN_HOMES OUTPUT X86Program:', repr(x86program))
         return x86program
 
 
@@ -1251,7 +1250,7 @@ class Compiler:
 
 
     def patch_instructions(self, p: X86Program) -> X86Program:
-        print('PATCH_INSTRUCTIONS INPUT X86Program:', p)
+        print('PATCH_INSTRUCTIONS INPUT X86Program:', repr(p))
         x86program = None
 
         match p:
@@ -1267,7 +1266,7 @@ class Compiler:
             case _:
                 raise Exception('Error: Compiler.patch_instructions case not yet implemented.')
 
-        print('PATCH_INSTRUCTIONS OUTPUT X86Program:', x86program)
+        print('PATCH_INSTRUCTIONS OUTPUT X86Program:', repr(x86program))
         return x86program
 
 
@@ -1277,7 +1276,7 @@ class Compiler:
     # trip to x86 chapter 1 and 2 section 2.8 generate prelude and conclusion.
 
     def prelude_and_conclusion(self, p: X86Program) -> X86Program:
-        print('PRELUDE_AND_CONCLUSION INPUT X86Program:', p)
+        print('PRELUDE_AND_CONCLUSION INPUT X86Program:', repr(p))
         x86program = None
 
         match p:
@@ -1301,7 +1300,7 @@ class Compiler:
                     prelude.append(
                         Instr('movq', [register,  Deref('rbp', - frame_space + ((n + 1) * 8 ))])
                     )
-                    prelude.append(Jump('start'))
+                prelude.append(Jump('start'))
                 prog.update({'main' : prelude})
 
                 # conclusion
@@ -1321,12 +1320,13 @@ class Compiler:
                 ])
                 prog.update({'conclusion' : conclusion})
 
-                # main and conclusion jump. BUE! thsi is not ok yet!
+                # wrap it up
                 x86program = X86Program(prog)
+                #x86program = X86Program
 
 
             case _:
                 raise Exception('Error: Compiler.prelude_and_conclusion case not yet implemented.')
 
-        #print('PRELUDE_AND_CONCLUSION OUTPUT X86Program:', x86program)
+        print('PRELUDE_AND_CONCLUSION OUTPUT X86Program:', repr(x86program))
         return x86program
