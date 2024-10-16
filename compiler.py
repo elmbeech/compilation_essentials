@@ -1,3 +1,6 @@
+# willem armentrout
+# elmar bucher
+
 # libraries
 import ast
 from ast import *  # Add, BinOP, Call, Constant, expr, Name, Sub, UnaryOP, USub
