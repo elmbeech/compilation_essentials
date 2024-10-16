@@ -147,7 +147,7 @@ class Compiler:
                 newexp = IfExp(self.shrink_exp(exp1), self.shrink_exp(exp2), Constant(False))
 
             case BoolOp(Or(), [exp1, exp2]):  # shrink translation
-                newexp = IfExp(Constant(True), self.shrink_exp(exp1), self.shrink_exp(exp2))
+                newexp = IfExp(self.shrink_exp(exp1), Constant(True), self.shrink_exp(exp2))
 
             case Compare(exp1, [cmp], [exp2]):
                 newexp = Compare(self.shrink_exp(exp1), [cmp], [self.shrink_exp(exp2)])
@@ -258,9 +258,15 @@ class Compiler:
                 return (constant, [])
 
             case Compare(left, [cmp], [right]):  # Lif; always leaf
-                compare = Compare(left, [cmp], [right])  # 20241003: can handel Eq, NotEq, Lt, LtE, Gt, GtE
-                print('RCO_EXP OUTPUT compare atom:', compare)
-                return (compare, [])
+                new_left, tmp_left = self.rco_exp(left, True)
+                new_right, tmp_right = self.rco_exp(right, True)
+                compare = Compare(new_left, [cmp], [new_right])  # 20241003: can handel Eq, NotEq, Lt, LtE, Gt, GtE
+                if need_atomic:
+                    tmp = Name(generate_name('tmp'))
+                    print('RCO_EXP OUTPUT compare complex:', (tmp, tmp_left + tmp_right + [(tmp, compare)]))
+                    return (tmp, tmp_left + tmp_right + [(tmp, compare)])
+                print('RCO_EXP OUTPUT compare atom:', (compare, []))
+                return (compare, tmp_left + tmp_right)
 
             case IfExp(exptest, expthen, expelse):  # Lif
                 print("THIS IS IFEXP")
@@ -268,12 +274,10 @@ class Compiler:
                 newexptest, l_tmptest = self.rco_exp(exptest, False)
                 # then
                 newexpthen, l_tmpexpthen = self.rco_exp(expthen, False)
-                l_tmpstmthen = [Assign([Name(var)], exp) for var, exp in l_tmpexpthen]
-                #l_tmpstmthen = [Assign([var], exp) for var, exp in l_tmpexpthen]
+                l_tmpstmthen = [Assign([var], exp) for var, exp in l_tmpexpthen]
                 # else
                 newexpelse, l_tmpexpelse = self.rco_exp(expelse, False)
-                l_tmpstmelse = [Assign([Name(var)], exp) for var, exp in l_tmpexpelse]
-                #l_tmpstmelse = [Assign([var], exp) for var, exp in l_tmpexpelse]
+                l_tmpstmelse = [Assign([var], exp) for var, exp in l_tmpexpelse]
                 # ifexp statement
                 # bue 20241009: Begin is part of Lif mon and not part of Lif.
                 if (len(l_tmpstmthen) == 0) and (len(l_tmpstmelse) == 0):
@@ -288,7 +292,7 @@ class Compiler:
                     tmp = Name(generate_name('tmp'))
                     print('RCO_EXP OUTPUT not complex:', (tmp, l_tmptest + [(tmp, ifexp)]))
                     return (tmp, l_tmptest + [(tmp, ifexp)])
-                print('RCO_EXP OUTPUT ifexp:', ifexp, l_tmptest)
+                print('RCO_EXP OUTPUT ifexp:', repr(ifexp), l_tmptest)
                 return (ifexp, l_tmptest)
 
             case Name(var):  # Lvar; always leaf
@@ -425,6 +429,10 @@ class Compiler:
                 print('EXPLICATE_EFFECT OUTPUT new_test:', new_test)
                 return new_test
 
+            case Assign([lhs], exp):
+                new_exp = self.explicate_assign(exp, lhs, cont, basic_blocks)
+                return new_exp
+
             case _:  # Constant(var)
                 print('EXPLICATE_EFFECT OUTPUT cont:', cont)
                 return cont
@@ -485,9 +493,10 @@ class Compiler:
             case Begin(body, result):
                 goto_thn = self.create_block(thn, basic_blocks)
                 goto_els = self.create_block(els, basic_blocks)
-                new_body = self.explicate_pred(body, goto_thn, goto_els, basic_blocks)
                 new_result = self.explicate_pred(result, goto_thn, goto_els, basic_blocks)
-                l_stm = new_body + new_result
+                l_stm = []
+                for stm in body:
+                    self.explicate_effect(stm, new_result, basic_blocks)
 
             case _:
                 l_stm = [If(
@@ -514,9 +523,10 @@ class Compiler:
                 return l_explicate
 
             case If(test, body, orelse):
-                body_block = self.create_block(body, basic_blocks)
-                orelse_block = self.create_block(orelse, basic_blocks)
-                l_explicate = self.explicate_pred(test, body_block, orelse_block, basic_blocks) + cont
+                cont_block = self.create_block(cont, basic_blocks)
+                body_block = self.create_block(body + cont_block, basic_blocks)
+                orelse_block = self.create_block(orelse + cont_block, basic_blocks)
+                l_explicate = self.explicate_pred(test, body_block, orelse_block, basic_blocks)
                 return l_explicate
 
             case _:
@@ -667,7 +677,7 @@ class Compiler:
                     case Eq():
                         cc = 'e'
                         l_inst = [
-                            Instr('cmpq', [atm_one, atm_two]),
+                            Instr('cmpq', [atm_two, atm_one]),
                             JumpIf(cc, label1),
                             Jump(label2)
                         ]
@@ -675,7 +685,7 @@ class Compiler:
                     case Gt():
                         cc = 'g'
                         l_inst = [
-                            Instr('cmpq', [atm_one, atm_two]),
+                            Instr('cmpq', [atm_two, atm_one]),
                             JumpIf(cc, label1),
                             Jump(label2)
                         ]
@@ -683,7 +693,7 @@ class Compiler:
                     case GtE():
                         cc ='ge'
                         l_inst = [
-                            Instr('cmpq', [atm_one, atm_two]),
+                            Instr('cmpq', [atm_two, atm_one]),
                             JumpIf(cc, label1),
                             Jump(label2)
                         ]
@@ -691,7 +701,7 @@ class Compiler:
                     case LtE():
                         cc = 'le'
                         l_inst = [
-                            Instr('cmpq', [atm_one, atm_two]),
+                            Instr('cmpq', [atm_two, atm_one]),
                             JumpIf(cc, label1),
                             Jump(label2)
                         ]
@@ -699,7 +709,7 @@ class Compiler:
                     case Lt():
                         cc = 'l'
                         l_inst = [
-                            Instr('cmpq', [atm_one, atm_two]),
+                            Instr('cmpq', [atm_two, atm_one]),
                             JumpIf(cc, label1),
                             Jump(label2)
                         ]
@@ -707,7 +717,7 @@ class Compiler:
                     case NotEq():
                         cc = 'ne'
                         l_inst = [
-                            Instr('cmpq', [atm_one, atm_two]),
+                            Instr('cmpq', [atm_two, atm_one]),
                             JumpIf(cc, label1),
                             Jump(label2)
                         ]
@@ -1217,42 +1227,43 @@ class Compiler:
                 if mem1 != mem2:  # jump over trivial moves
                     match i:
                         case Instr('movq', [Deref(reg1, arg1), Deref(reg2, arg2)]):
-                            l_inst.append( Instr('movq', [Deref(reg1, arg1), Reg('rax')]) )
-                            l_inst.append( Instr('movq', [Reg('rax'), Deref(reg2, arg2)]) )
+                            l_inst.append(Instr('movq', [Deref(reg1, arg1), Reg('rax')]))
+                            l_inst.append(Instr('movq', [Reg('rax'), Deref(reg2, arg2)]))
                         case _:
                             l_inst.append(i)
 
             case Instr('subq', [Deref(reg1, arg1), Deref(reg2, arg2)]):
-                l_inst.append( Instr('movq', [Deref(reg1, arg1), Reg('rax')]) )
-                l_inst.append( Instr('subq', [Reg('rax'), Deref(reg2, arg2)]) )
+                l_inst.append(Instr('movq', [Deref(reg1, arg1), Reg('rax')]))
+                l_inst.append(Instr('subq', [Reg('rax'), Deref(reg2, arg2)]))
 
             case Instr('addq', [Deref(reg1, arg1), Deref(reg2, arg2)]):
-                l_inst.append( Instr('movq', [Deref(reg1, arg1), Reg('rax')]) )
-                l_inst.append( Instr('addq', [Reg('rax'), Deref(reg2, arg2)]) )
+                l_inst.append(Instr('movq', [Deref(reg1, arg1), Reg('rax')]))
+                l_inst.append(Instr('addq', [Reg('rax'), Deref(reg2, arg2)]))
 
-            case Instr('cmpq',[Immediate(value1),Immediate(value2)]):
-                l_inst.append( Instr('movq',[Immediate(value2),Reg('rax')]) )
+            case Instr('cmpq', [value1, Immediate(value2)]):
+                l_inst.append(Instr('movq', [Immediate(value2),Reg('rax')]))
+                l_inst.append(Instr('cmpq', [value1,Reg('rax')]))
 
             case Instr('cmpq',[Deref(reg1,value1),Deref(reg2,value2)]):
-                l_inst.append( Instr('movq',[Deref(reg1,value1),Reg('rax')]) )
-                l_inst.append( Instr('cmpq', [Reg('rax'),Deref(reg2,value2)]) )
+                l_inst.append(Instr('movq', [Deref(reg1,value1),Reg('rax')]))
+                l_inst.append(Instr('cmpq', [Reg('rax'),Deref(reg2,value2)]))
 
             case Instr('movbzq',[arg,value]):
                 if type(value) != Reg():
-                    l_inst.append( Instr('movq',[value,Reg('rax')]) )
-                    l_inst.append( Instr('movbzq', [arg,Reg('rax')]) )
+                    l_inst.append(Instr('movq',[value,Reg('rax')]))
+                    l_inst.append(Instr('movbzq', [arg,Reg('rax')]))
 
             case Instr(command, [Immediate(arg1), Deref(reg2, arg2)]):  # big int
                 if arg1 >= 2**16:
-                    l_inst.append( Instr(command, [Immediate(arg1), Reg('rax')]) )
-                    l_inst.append( Instr(command, [Reg('rax'), Deref(reg2, arg2)]) )
+                    l_inst.append(Instr(command, [Immediate(arg1), Reg('rax')]))
+                    l_inst.append(Instr(command, [Reg('rax'), Deref(reg2, arg2)]))
                 else:
                     l_inst.append(i)
 
             case Instr(command, [Deref(reg1, arg1), Immediate(arg2)]):  # big int
                 if arg2 >= 2**16:
-                    l_inst.append( Instr(command, [Immediate(arg2), Reg('rax')]) )
-                    l_inst.append( Instr(command, [Reg('rax'), Deref(reg1, arg1)]) )
+                    l_inst.append(Instr(command, [Immediate(arg2), Reg('rax')]))
+                    l_inst.append(Instr(command, [Reg('rax'), Deref(reg1, arg1)]))
                 else:
                     l_inst.append(i)
 
