@@ -388,13 +388,13 @@ class Compiler:
 
         match stmts:
             case [Goto(block)]:
-                print('CREATER_BLOCK OUTPUT Goto(1) stmts:', stmts)
+                print('CREATER_BLOCK OUTPUT Goto(block) stmts:', stmts)
                 return stmts
 
             case _:
                 label = label_name(generate_name('block'))
-                #basic_blocks[label] = stmts
-                basic_blocks.update({label: stmts})
+                basic_blocks[label] = stmts
+                #basic_blocks.update({label: stmts})
                 print('CREATER_BLOCK OUTPUT Goto(label) stmts:', stmts)
                 return [Goto(label)]
 
@@ -416,8 +416,8 @@ class Compiler:
                 return [Expr(Call(func, args))] + cont
 
             case IfExp(test, body, orelse):
-                new_body = self.explicate_effect(body, basic_blocks)
-                new_orelse = self.explicate_effect(orelse, basic_blocks)
+                new_body = self.explicate_effect(body, cont, basic_blocks)
+                new_orelse = self.explicate_effect(orelse, cont, basic_blocks)
                 new_test = self.explicate_pred(test, new_body, new_orelse, basic_blocks)
                 print('EXPLICATE_EFFECT OUTPUT new_test:', new_test)
                 return new_test
@@ -434,8 +434,8 @@ class Compiler:
         match rhs:
             case IfExp(test, body, orelse):
                 #cont_block = self.create_block(cont, basic_blocks)
-                body_assign = self.explicate_assign(body, lhs, cont_block, basic_blocks)
-                orelse_assign = self.explicate_assign(orelse, lhs, cont_block, basic_blocks)
+                body_assign = self.explicate_assign(body, lhs, cont, basic_blocks)
+                orelse_assign = self.explicate_assign(orelse, lhs, cont, basic_blocks)
                 ifexp_pred = self.explicate_pred(test, body_assign, orelse_assign, basic_blocks)
                 print('EXPLICATE_ASSIGN OUTPUT ifexp_pred:', ifexp_pred)
                 return ifexp_pred
