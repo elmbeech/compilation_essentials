@@ -269,7 +269,6 @@ class Compiler:
                 return (compare, tmp_left + tmp_right)
 
             case IfExp(exptest, expthen, expelse):  # Lif
-                print("THIS IS IFEXP")
                 # test
                 newexptest, l_tmptest = self.rco_exp(exptest, False)
                 # then
@@ -496,7 +495,8 @@ class Compiler:
                 new_result = self.explicate_pred(result, goto_thn, goto_els, basic_blocks)
                 l_stm = []
                 for stm in body:
-                    self.explicate_effect(stm, new_result, basic_blocks)
+                    new_stm = self.explicate_effect(stm, new_result, basic_blocks)
+                    l_stm.extend(new_stm)
 
             case _:
                 l_stm = [If(
@@ -905,6 +905,7 @@ class Compiler:
                 e_location = set()
                 d_after = {}
                 for s_label  in topological_sort(transpose(g)):
+                    e_before = set()
                     e_after = set()
                     for i in body[s_label][::-1]:
                         e_read = self.read_vars(i)
