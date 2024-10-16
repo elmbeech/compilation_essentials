@@ -384,72 +384,74 @@ class Compiler:
 
     def create_block(self, stmts : List[stmt], basic_blocks : Dict) -> List[stmt]:
         # bue: this updates the basic_blocks dict
+        print('CREATER_BLOCK INPUT stmts basic_blocks:', stmts, basic_blocks)
 
         match stmts:
-            case [Goto(1)]:
+            case [Goto(block)]:
+                print('CREATER_BLOCK OUTPUT Goto(1) stmts:', stmts)
                 return stmts
 
             case _:
                 label = label_name(generate_name('block'))
-                basic_blocks[label] = stmts
+                #basic_blocks[label] = stmts
+                basic_blocks.update({label: stmts})
+                print('CREATER_BLOCK OUTPUT Goto(label) stmts:', stmts)
                 return [Goto(label)]
 
 
     def explicate_effect(self, e : expr, cont : List[stmt], basic_blocks : Dict) -> List[stmt]:
         ''' generate code for expressions as statements, result is ignored, only side effects matter '''
-        #print('EXPLICATE_EFFECT INPUT:')
+        print('EXPLICATE_EFFECT INPUT: e cont basic_blocks ', e, cont, basic_blocks)
 
         match e:
             case Begin(body, result):
-                #new_block = self.create_block(cont, basic_blocks)
-                #new_body = self.explicate_effect(body, new_block, basic_blocks)
                 ss = self.explicate_effect(result, cont, basic_blocks)
                 for s in reversed(body):
                     ss += self.explicare_effect(s, ss, basic_blocks)
+                print('EXPLICATE_EFFECT OUTPUT ss:', ss)
                 return ss
 
             case Call(func, args):
+                print('EXPLICATE_EFFECT OUTPUT [Expr(Call(func, args))] + cont:', [Expr(Call(func, args))] + cont)
                 return [Expr(Call(func, args))] + cont
 
             case IfExp(test, body, orelse):
-                #body_block = self.explicate_effect(body, basic_blocks)
-                #orelse_block = self.explicate_effect(orelse, basic_blocks)
-                body_block = self.create_block(body, basic_blocks)
-                orelse_block = self.create_block(orelse, basic_blocks)
-                new_test = self.explicate_pred(test, body_block, orelse_block, basic_blocks)
+                new_body = self.explicate_effect(body, basic_blocks)
+                new_orelse = self.explicate_effect(orelse, basic_blocks)
+                new_test = self.explicate_pred(test, new_body, new_orelse, basic_blocks)
+                print('EXPLICATE_EFFECT OUTPUT new_test:', new_test)
                 return new_test
 
             case _:  # Constant(var)
+                print('EXPLICATE_EFFECT OUTPUT cont:', cont)
                 return cont
-
-        #print('EXPLICATE_EFFECT OUTPUT :',)
 
 
     def explicate_assign(self, rhs : expr, lhs : expr, cont : List[stmt], basic_blocks : Dict) -> List[stmt]:
         ''' generate code for a rhs right hand side expressions of an assignment '''
-        #print('EXPLICATE_ASSIGN INPUT:')
+        print('EXPLICATE_ASSIGN INPUT:', rhs, lhs, cont, basic_blocks)
 
         match rhs:
             case IfExp(test, body, orelse):
-                body_assign = self.explicate_assign(body, lhs, cont, basic_blocks)
-                orelse_assign = self.explicate_assign(orelse, lhs, cont, basic_blocks)
+                cont_block = self.create_block(cont,basic_blocks)
+                body_assign = self.explicate_assign(body, lhs, cont_block, basic_blocks)
+                orelse_assign = self.explicate_assign(orelse, lhs, cont_block, basic_blocks)
                 ifexp_pred = self.explicate_pred(test, body_assign, orelse_assign, basic_blocks)
-                return ifexp_pred + cont
+                print('EXPLICATE_ASSIGN OUTPUT ifexp_pred:', ifexp_pred)
+                return ifexp_pred
 
             case Begin(body, result):
-                #cont_block = self.create_block(cont, basic_blocks)
-                new_body = self.explicate_assign(body, lhs, cont_block, basic_blocks)
-                return [Assign(lhs, new_body)]
+                print('EXPLICATE_ASSIGN OUTPUT [Assign(lhs, result)] + cont:', [Assign(lhs, result)] + cont)
+                return [Assign(lhs, result)] + cont
 
             case _:
+                print('EXPLICATE_ASSIGN OUTPUT [Assign([lhs], rhs)] + cont:', [Assign([lhs], rhs)] + cont)
                 return [Assign([lhs], rhs)] + cont
-
-        #print('EXPLICATE_ASSIGN OUTPUT :',)
 
 
     def explicate_pred(self, cnd : expr, thn : List[stmt], els : List[stmt], basic_blocks : Dict) -> List[stmt]:
         ''' generate code for if expressions or statement by analyzing the condition expression '''
-        #print('EXPLICATE_PRED INPUT:')
+        print('EXPLICATE_PRED INPUT cnd, thn, els, basic_blocks:', cnd, thn, els, basic_blocks)
         l_stm = None
 
         match cnd:
@@ -459,15 +461,13 @@ class Compiler:
                 l_stm = [If(cnd, goto_thn, goto_els)]
 
             case Constant(True):
-                return thn
+                l_stm = thn
 
             case Constant(False):
-                return els
+                l_stm = els
 
             case UnaryOp(Not(), operand):
-                goto_thn = self.create_block(thn, basic_blocks)
-                goto_els = self.create_block(els, basic_blocks)
-                l_stm = self.explicate_pred(operand, goto_thn, goto_els, basic_blocks)
+                l_stm = self.explicate_pred(operand, thn, els, basic_blocks)
 
             case IfExp(test, body, orelse):
                 goto_thn = self.create_block(thn, basic_blocks)
@@ -479,7 +479,9 @@ class Compiler:
             case Begin(body, result):
                 goto_thn = self.create_block(thn, basic_blocks)
                 goto_els = self.create_block(els, basic_blocks)
-                l_stm = self.explicate_pred(body, goto_thn, goto_els, basic_blocks)
+                new_body = self.explicate_pred(body, goto_thn, goto_els, basic_blocks)
+                new_result = self.explicate_pred(result, goto_thn, goto_els, basic_blocks)
+                l_stm = new_body + new_result
 
             case _:
                 l_stm = [If(
@@ -488,28 +490,33 @@ class Compiler:
                     self.create_block(thn, basic_blocks),
                 )]
 
-        #print('EXPLICATE_PRED OUTPUT :',)
+        print('EXPLICATE_PRED OUTPUT l_stm :', l_stm)
         return l_stm
 
 
     def explicate_stmt(self, s : stmt, cont : List[stmt], basic_blocks : Dict) -> List[stmt]:
         ''' generate code for statements '''
-        #print('EXPLICATE_STMT INPUT:')
+        print('EXPLICATE_STMT INPUT:', s, cont, basic_blocks)
 
         match s:
             case Assign([lhs], rhs):
-                return self.explicate_assign(rhs, lhs, cont, basic_blocks)
+                l_explicate = self.explicate_assign(rhs, lhs, cont, basic_blocks)
+                return  l_explicate
 
             case Expr(value):
-                return self.explicate_effect(value, cont, basic_blocks)
+                l_explicate = self.explicate_effect(value, cont, basic_blocks)
+                return l_explicate
 
-            case If(test, body, orelse):  # bue 20241006
-                return self.explicate_pred(test, body, orelse, basic_blocks) + cont
+            case If(test, body, orelse):
+                body_block = self.create_block(body, basic_blocks)
+                orelse_block = self.create_block(orelse, basic_blocks)
+                l_explicate = self.explicate_pred(test, body_block, orelse_block, basic_blocks) + cont
+                return l_explicate
 
             case _:
                 raise Exception('Error: Compiler.explicate_stmt case not yet implemented.')
 
-        #print('EXPLICATE_STMT OUTPUT :',)
+        print('EXPLICATE_STMT OUTPUT :', l_explicate)
 
 
     def explicate_control(self, p: Module):
@@ -528,7 +535,7 @@ class Compiler:
             case _:
                 raise Exception('Error: Compiler.explicate_control case not yet implemented.')
 
-        print('EXPLICATE_CTRL INPUT CProgram', repr(cprogram))
+        print('EXPLICATE_CTRL OUTPUT CProgram', repr(cprogram))
         return cprogram
 
 
@@ -540,26 +547,27 @@ class Compiler:
     def select_arg(self, e: expr) -> arg:  # arg terminal
         # work on atoms
         print('SELECT_ARG INPUT expr:', e)
-        arg_var = None
+        argu = None
 
         match e:
             case Constant(True):  # Lif atom
-                arg_var = Immediate(1)
+                argu = Immediate(1)
 
             case Constant(False):  # Lif atom
-                arg_var = Immediate(0)
+                argu = Immediate(0)
 
             case Constant(var):  # Lint atom
-                arg_var = Immediate(var)
+                argu = Immediate(var)
 
             case Name(var):  # Lvar atom
-                arg_var = Variable(var)
+                argu = Variable(var)
 
             case _:
-                raise Exception('Error: Compiler.select_arg case not yet implemented.', repr(e))
+                argu = e
+                #raise Exception('Error: Compiler.select_arg case not yet implemented.', repr(e))
 
-        print('SELECT_ARG OUTPUT arg:', arg_var)
-        return arg_var
+        print('SELECT_ARG OUTPUT arg:', argu)
+        return argu
 
 
     def select_stmt(self, s: stmt) -> List[instr]:  # stmt non terminal
