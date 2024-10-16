@@ -433,7 +433,7 @@ class Compiler:
 
         match rhs:
             case IfExp(test, body, orelse):
-                cont_block = self.create_block(cont,basic_blocks)
+                #cont_block = self.create_block(cont, basic_blocks)
                 body_assign = self.explicate_assign(body, lhs, cont_block, basic_blocks)
                 orelse_assign = self.explicate_assign(orelse, lhs, cont_block, basic_blocks)
                 ifexp_pred = self.explicate_pred(test, body_assign, orelse_assign, basic_blocks)
@@ -441,8 +441,9 @@ class Compiler:
                 return ifexp_pred
 
             case Begin(body, result):
-                print('EXPLICATE_ASSIGN OUTPUT [Assign(lhs, result)] + cont:', [Assign(lhs, result)] + cont)
-                return [Assign(lhs, result)] + cont
+                new_result = self.explicate_assign(result, lhs, cont, basic_blocks)
+                print('EXPLICATE_ASSIGN OUTPUT [Assign(lhs, result)] + cont:', new_result)
+                return new_result
 
             case _:
                 print('EXPLICATE_ASSIGN OUTPUT [Assign([lhs], rhs)] + cont:', [Assign([lhs], rhs)] + cont)
@@ -467,7 +468,9 @@ class Compiler:
                 l_stm = els
 
             case UnaryOp(Not(), operand):
-                l_stm = self.explicate_pred(operand, thn, els, basic_blocks)
+                goto_thn = self.create_block(thn, basic_blocks)
+                goto_els = self.create_block(els, basic_blocks)
+                l_stm = self.explicate_pred(operand, goto_thn, goto_els, basic_blocks)
 
             case IfExp(test, body, orelse):
                 goto_thn = self.create_block(thn, basic_blocks)
