@@ -1,6 +1,7 @@
 # willem armentrout
 # elmar bucher
 
+
 # Language P_var
 #
 # Concrete Syntax
@@ -16,6 +17,7 @@
 #       | UnaryOp(USub(), exp) | BinOp(exp, Add(), exp)
 # stmt ::= Assign([var],exp) | Expr(Call(Name('print'), [exp])) | Expr(exp)
 # program ::= Module([stmt])
+
 
 # Language L_If
 #
@@ -38,6 +40,19 @@
 #       | BoolOp(boolop, [exp, exp]) | UnaryOp(Not(), exp)
 #       | Compare(exp, [cmp], [exp])
 # stmt ::= ... | If(exp, [stmt], [stmt])
+
+
+# Language L_While
+#
+# Concrete Syntax
+#
+# stmt ::= ... | While(exp, stmt+ , [])
+#
+#
+# Abstract Syntax
+#
+# stmt ::= ... | while exp: stmt+
+
 
 import ast
 #from ast import *
@@ -128,14 +143,22 @@ class Compiler:
     def shrink_stmt(self, s: stmt) -> stmt:
         match s:
             case Assign(targets, value):
-                return Assign([self.shrink_exp(e) for e in targets],
-                              self.shrink_exp(value))
+                return Assign([self.shrink_exp(e) for e in targets], self.shrink_exp(value))
+
             case Expr(value):
                 return Expr(self.shrink_exp(value))
+
             case If(test, body, orelse):
                 return If(self.shrink_exp(test),
                           [self.shrink_stmt(s) for s in body],
                           [self.shrink_stmt(s) for s in orelse])
+
+            case While(cmp, body, []):
+                return While(
+                    self.shrink_exp(cmp),
+                    [self.shrink_stmt(s) for s in body],
+                    [])
+
             case _:
                 raise Exception('shrink_stmt: unexpected: ' + repr(s))
 
@@ -255,13 +278,6 @@ class Compiler:
 
     def rco_stmt(self, s: stmt) -> List[stmt]:
         match s:
-            case If(test, body, orelse):
-                (test, bs) = self.rco_exp(test, False)
-                sss1 = [self.rco_stmt(s) for s in body]
-                sss2 = [self.rco_stmt(s) for s in orelse]
-                return [Assign([lhs], rhs) for (lhs, rhs) in bs] \
-                       + [If(test, sum(sss1, []), sum(sss2, []))]
-
             case Assign(targets, value):
                 new_value, bs = self.rco_exp(value, False)
                 return [Assign([lhs], rhs) for (lhs, rhs) in bs] \
@@ -271,6 +287,20 @@ class Compiler:
                 new_value, bs = self.rco_exp(value, False)
                 return [Assign([lhs], rhs) for (lhs, rhs) in bs] \
                     + [Expr(new_value)]
+
+            case If(test, body, orelse):
+                new_test, bs = self.rco_exp(test, False)
+                new_body = [self.rco_stmt(stm) for stm in body]
+                new_orelse = [self.rco_stmt(stm) for stm in orelse]
+                return [Assign([lhs], rhs) for (lhs, rhs) in bs] \
+                       + [If(new_test, sum(new_body, []), sum(new_orelse, []))]
+
+            case While(cmp, body, []):
+                new_cmp, l_tmp = self.rco_exp(cmp, False)
+                new_body = [self.rco_stmt(stm) for stm in body]
+                return [Assign([lhs], rhs) for (lhs, rhs) in l_tmp] \
+                    + [While(new_cmp, sum(new_body, []), [])]
+
             case _:
                 raise Exception('error in rco_stmt, unhandled: ' + repr(s))
 
@@ -278,11 +308,11 @@ class Compiler:
     def remove_complex_operands(self, p: Module) -> Module:
         match p:
             case Module(body):
-                sss = [self.rco_stmt(s) for s in body]
+                sss = [self.rco_stmt(stm) for stm in body]
                 return Module(sum(sss, []))
+
             case _:
-                raise Exception('error remove_complex_operators, unhandled: '\
-                                + repr(p))
+                raise Exception('error remove_complex_operators, unhandled: ' + repr(p))
 
 
     ############################################################################
@@ -348,21 +378,27 @@ class Compiler:
         match cnd:
             case Name(x):
                 return self.generic_explicate_pred(cnd, thn, els, basic_blocks)
+
             case Compare(left, [op], [right]):
                 goto_thn = self.create_block(thn, basic_blocks)
                 goto_els = self.create_block(els, basic_blocks)
                 return [If(cnd, goto_thn, goto_els)]
+
             case Constant(True):
                 return thn
+
             case Constant(False):
                 return els
+
             case UnaryOp(Not(), operand):
                 return self.explicate_pred(operand, els, thn, basic_blocks)
+
             case Begin(body, result):
               ss = self.explicate_pred(result, thn, els, basic_blocks)
               for s in reversed(body):
                   ss = self.explicate_stmt(s, ss, basic_blocks)
               return ss
+
             case IfExp(test, body, orelse):
                 goto_thn = self.create_block(thn, basic_blocks)
                 goto_els = self.create_block(els, basic_blocks)
@@ -372,6 +408,7 @@ class Compiler:
                                               basic_blocks)
                 return self.explicate_pred(test, new_body, new_els,
                                            basic_blocks)
+
             case _:
                 raise Exception('explicate_pred: unexpected ' + repr(cnd))
 
@@ -380,8 +417,10 @@ class Compiler:
         match s:
             case Assign([lhs], rhs):
                 return self.explicate_assign(rhs, lhs, cont, basic_blocks)
+
             case Expr(value):
                 return self.explicate_effect(value, cont, basic_blocks)
+
             case If(test, body, orelse):
                 goto = self.create_block(cont, basic_blocks)
                 new_body = goto
@@ -390,8 +429,15 @@ class Compiler:
                 new_els = goto
                 for s in reversed(orelse):
                     new_els = self.explicate_stmt(s, new_els, basic_blocks)
-                return self.explicate_pred(test, new_body, new_els,
-                                           basic_blocks)
+                return self.explicate_pred(test, new_body, new_els, basic_blocks)
+
+            case While(test, body, []):
+                goto = self.create_block(cont, basic_blocks)
+                new_body = goto
+                for s in reversed(body):
+                    new_body = self.explicate_stmt(s, new_body, basic_blocks)
+                return self.explicate_pred(test, new_body, [], basic_blocks)
+
             case _:
                 raise Exception('explicate_stmt: unexpected ' + repr(s))
 
@@ -404,6 +450,7 @@ class Compiler:
                     new_body = self.explicate_stmt(s, new_body, basic_blocks)
                 basic_blocks['start'] = new_body
                 return CProgram(basic_blocks)
+
             case _:
                 raise Exception('explicate_control: unexpected ' + repr(p))
 
