@@ -297,11 +297,11 @@ class Compiler:
                 return [Assign([lhs], rhs) for (lhs, rhs) in bs] \
                        + [If(new_test, sum(new_body, []), sum(new_orelse, []))]
 
-            case While(cmp, body, []):
-                new_cmp, l_tmp = self.rco_exp(cmp, False)
+            case While(test, body, []):
+                new_test, l_tmp = self.rco_exp(test, False)
                 new_body = [self.rco_stmt(stm) for stm in body]
                 return [Assign([lhs], rhs) for (lhs, rhs) in l_tmp] \
-                    + [While(new_cmp, sum(new_body, []), [])]
+                    + [While(new_test, sum(new_body, []), [])]
 
             case _:
                 raise Exception('error in rco_stmt, unhandled: ' + repr(s))
@@ -324,24 +324,38 @@ class Compiler:
     def create_block(self, stmts: List[stmt],
                      basic_blocks: Dict[str, List[stmt]]) -> List[stmt]:
         match stmts:
-          case [Goto(l)]:
+            case [Goto(label)]:
                 return stmts
 
-          case _:
+            case _:
                 label = generate_name('block')
                 basic_blocks[label] = stmts
                 return [Goto(label)]
 
-    def create_loop(self, stmts: List[stmt],
+    def create_loop(self, stmts: List[stmt], cont: List[stmt],
                      basic_blocks: Dict[str, List[stmt]]) -> List[stmt]:
+        print('BUEE: create_loop')
         match stmts:
-          case [Goto(l)]:
-                return stmts
+            #case [Goto(l)]:
+            #      return stmts
 
-          case _:
+            case [While(test, body, [])]:
+                new_cont = self.create_block(cont, basic_blocks)
+                print('BUEE new_cont:', new_cont)
                 label = generate_name('loop')
-                basic_blocks[label] = stmts
+                new_body = [Goto(label)]
+                print('BUEE new_body:', new_body)
+                for i in reversed(body):
+                    new_body = self.explicate_stmt(i, new_body, basic_blocks)
+                print('BUEE new_body:', new_body)
+                stmts = self.explicate_pred(test, new_body, new_cont, basic_blocks)
+                print('BUEE stmts:', stmts)
+                basic_blocks[label] = stmts  #[Goto(label)]
+                print('BUEE basic_blocks:', basic_blocks)
                 return [Goto(label)]
+
+            case _:
+                raise Exception('error create_loop, unhandled: ' + repr(stmts))
 
     def explicate_effect(self, e: expr, cont: List[stmt],
                          basic_blocks: Dict[str, List[stmt]]) -> List[stmt]:
@@ -351,14 +365,16 @@ class Compiler:
                 for s in reversed(body):
                   ss = self.explicate_stmt(s, ss, basic_blocks)
                 return ss
+
             case IfExp(test, body, orelse):
                 goto = self.create_block(cont, basic_blocks)
                 new_body = self.explicate_effect(body, goto, basic_blocks)
                 new_orelse = self.explicate_effect(orelse, goto, basic_blocks)
-                return self.explicate_pred(test, new_body, new_orelse,
-                                           basic_blocks)
+                return self.explicate_pred(test, new_body, new_orelse, basic_blocks)
+
             case Call(func, args):
                 return [Expr(e)] + cont
+
             case _:  # no effect, remove this expression
                 return cont
 
@@ -370,13 +386,12 @@ class Compiler:
               for s in reversed(body):
                   ss = self.explicate_stmt(s, ss, basic_blocks)
               return ss
+
             case IfExp(test, body, orelse):
                 goto = self.create_block(cont, basic_blocks)
                 new_body = self.explicate_assign(body, x, goto, basic_blocks)
-                new_orelse = self.explicate_assign(orelse, x, goto,
-                                                   basic_blocks)
-                return self.explicate_pred(test, new_body, new_orelse,
-                                           basic_blocks)
+                new_orelse = self.explicate_assign(orelse, x, goto, basic_blocks)
+                return self.explicate_pred(test, new_body, new_orelse, basic_blocks)
             case _:
                 return [Assign([x], e)] + cont
 
@@ -446,12 +461,16 @@ class Compiler:
                 return self.explicate_pred(test, new_body, new_els, basic_blocks)
 
             case While(test, body, []):  # BUE: fix this
-                goto = self.create_block(cont, basic_blocks)
-                new_cont = goto
-                new_body = goto
-                for s in reversed(body):
-                    new_body = self.explicate_stmt(s, new_body, basic_blocks)
-                return self.explicate_pred(test, new_body, new_cont, basic_blocks)
+                new_cont = self.create_block(cont, basic_blocks)
+                label = generate_name('loop')
+                new_body = [Goto(label)]
+                for i in reversed(body):
+                    new_body = self.explicate_stmt(i, new_body, basic_blocks)
+                stmts = self.explicate_pred(test, new_body, new_cont, basic_blocks)
+                basic_blocks[label] = stmts 
+                print('BUEE basic_blocks:', basic_blocks)
+                return [Goto(label)]
+
 
             case _:
                 raise Exception('explicate_stmt: unexpected ' + repr(s))
@@ -658,8 +677,8 @@ class Compiler:
                 return {a}
             case Reg(id):
                 return {a}
-            case Deref(reg, offset):     # don't need this case
-                return {Reg(reg)}      # problem for write?
+            case Deref(reg, offset):  # don't need this case
+                return {Reg(reg)}  # problem for write?
             case Immediate(value):
                 return set()
             case _:
@@ -796,6 +815,8 @@ class Compiler:
             e_live_before_block = {Reg('rax'), Reg('rsp')}  # bue
         else:
             for i in reversed(body[s_node]):  # bue: process block bottom up
+                if not(i in de_live_before.keys()):
+                    de_live_before[i] = set()
                 de_live_before[i] = de_live_before[i].union(e_live_after.difference(self.write_vars(i)).union(self.read_vars(i)))
             e_live_before_block = de_live_before[i]
         return e_live_before_block
@@ -814,6 +835,7 @@ class Compiler:
         description:
 
         '''
+        print('BUE bergin analyze data fow!')
         trans_g = transpose(g)
         #print('BUE g', g.show())
         #print('BUE trans_g', trans_g.show())
@@ -821,14 +843,17 @@ class Compiler:
         de_live_before_block = dict((v, e_bottom) for v in g.vertices())
         de_live_before_block['conclusion'] = {Reg('rax'), Reg('rsp')}  # bue
         ls_work = deque(g.vertices())
+        print('BUE ls_work!', ls_work)
         while ls_work:
             s_node = ls_work.pop()
             le_live_after_block = [de_live_before_block[s_vertex] for s_vertex in trans_g.adjacent(s_node)]  # bue: adjacent are downstream nodes => live after set
             e_live_after_block = reduce(join, le_live_after_block, e_bottom)
             e_live_before_block = transfer(s_node, e_live_after_block, de_live_before=de_live_before, body=body)
+            print('BUE e_live_before_block!', e_live_before_block)
             if e_live_before_block != de_live_before_block[s_node]:
-                de_live_before[s_node] = e_live_before
+                de_live_before_block[s_node] = e_live_before
                 ls_work.extend(g.adjacent(s_node))
+        print('BUE end analyze data fow!')
         return de_live_before
 
     def uncover_live(self, p: X86Program) -> Dict[instr, Set[location]]:
@@ -854,8 +879,9 @@ class Compiler:
                 # BUE: here i am.
                 de_live_before = self.analyze_dataflow(g=cfg, transfer=self.transfer, body=body)
 
-                trace("uncover live:")
+                #trace("uncover live:")
                 #self.trace_live(p, live_before=de_live_before, live_after=de_live_after)
+                print('BUE de_live_before', de_live_before)
                 return de_live_before
 
 
