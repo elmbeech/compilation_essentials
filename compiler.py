@@ -77,7 +77,7 @@ from priority_queue import PriorityQueue
 from ast import *
 from utils import *
 from x86_ast import *
-from graph import UndirectedAdjList, DirectedAdjList, transpose, topological_sort
+from graph import UndirectedAdjList, DirectedAdjList, transpose, topological_sort, deque
 #import var
 #from var import Temporaries
 #import register_allocator
@@ -90,6 +90,8 @@ import type_check_Lif
 import interp_Cif
 import type_check_Cif
 from eval_x86 import interp_x86
+
+from functools import reduce
 
 Binding = tuple[Name, expr]
 Temporaries = List[Binding]
@@ -323,11 +325,11 @@ class Compiler:
                      basic_blocks: Dict[str, List[stmt]]) -> List[stmt]:
         match stmts:
           case [Goto(l)]:
-            return stmts
+                return stmts
           case _:
-            label = generate_name('block')
-            basic_blocks[label] = stmts
-            return [Goto(label)]
+                label = generate_name('block')
+                basic_blocks[label] = stmts
+                return [Goto(label)]
 
     def explicate_effect(self, e: expr, cont: List[stmt],
                          basic_blocks: Dict[str, List[stmt]]) -> List[stmt]:
@@ -684,12 +686,20 @@ class Compiler:
             case _:
                 raise Exception('error in write_vars, unexpected: ' + repr(i))
 
-    def uncover_live_instr(self, i: instr, live_before_succ: Set[location],
-                           live_before: Dict[instr, Set[location]],
-                           live_after: Dict[instr, Set[location]]):
-        live_after[i] = live_before_succ
-        live_before[i] = live_after[i].difference(self.write_vars(i)) \
-                                      .union(self.read_vars(i))
+    #def uncover_live_instr(self, 
+    #        i: instr, 
+    #        e_live_before_succ: Set[location],
+    #        de_live_before: Dict[instr, Set[location]],
+    #        de_live_after: Dict[instr, Set[location]]
+    #    ):
+    #    de_live_after[i] = e_live_before_succ
+    #    de_live_before[i] = de_live_after[i].difference(self.write_vars(i)).union(self.read_vars(i))
+
+    def uncover_live_instr(self, i, e_live_after):
+        e_live_before = e_live_after.difference(self.write_vars(i)).union(self.read_vars(i))
+        return e_live_before
+
+
     @staticmethod
     def adjacent_instr(s: instr) -> List[str]:
         if isinstance(s, Jump) or isinstance(s, JumpIf):
@@ -697,8 +707,7 @@ class Compiler:
         else:
             return []
 
-    def blocks_to_graph(self,
-                        blocks: Dict[str, List[instr]]) -> DirectedAdjList:
+    def blocks_to_graph(self, blocks: Dict[str, List[instr]]) -> DirectedAdjList:
         graph = DirectedAdjList()
         for u in blocks.keys():
             graph.add_vertex(u)
@@ -708,17 +717,20 @@ class Compiler:
                     graph.add_edge(u, v)
         return graph
 
-    def trace_live_blocks(self, blocks, live_before: Dict[instr, Set[location]],
-                   live_after: Dict[instr, Set[location]]):
-        for (l, ss) in blocks.items():
-            trace(l + ':\n')
-            i = 0
-            for s in ss:
-                if i == 0:
-                    trace('\t\t{' + ', '.join([str(l) for l in live_before[s]]) + '}')
-                trace(str(s))
-                trace('\t\t{' + ', '.join([str(l) for l in live_after[s]]) + '}')
-                i = i + 1
+    #def trace_live_blocks(self,
+    #        blocks,
+    #        live_before: Dict[instr, Set[location]],
+    #        live_after: Dict[instr, Set[location]]
+    #    ):
+    #    for (l, ss) in blocks.items():
+    #        trace(l + ':\n')
+    #        i = 0
+    #        for s in ss:
+    #            if i == 0:
+    #                trace('\t\t{' + ', '.join([str(l) for l in live_before[s]]) + '}')
+    #            trace(str(s))
+    #            trace('\t\t{' + ', '.join([str(l) for l in live_after[s]]) + '}')
+    #            i = i + 1
 
     #def trace_live(self, p: X86Program, live_before: Dict[instr, Set[location]],
     #               live_after: Dict[instr, Set[location]]):
@@ -748,35 +760,92 @@ class Compiler:
     #            self.trace_live(p, live_before, live_after)
     #            return live_after
 
+    #def trace_live(self,
+    #        p: X86Program, 
+    #        live_before: Dict[instr, Set[location]],
+    #        live_after: Dict[instr, Set[location]]
+    #    ):
+    #    match p:
+    #        case X86Program(body):
+    #            self.trace_live_blocks(body, live_before, live_after)
 
-    def trace_live(self, p: X86Program, live_before: Dict[instr, Set[location]],
-                   live_after: Dict[instr, Set[location]]):
-        match p:
-            case X86Program(body):
-                self.trace_live_blocks(body, live_before, live_after)
+
+    def transfer(self, s_node, e_live_after, body):
+        '''
+        input:
+            s_node: block lable.
+            e_live_after: live after set for that block.
+
+        output:
+            e_live_before: live before set for that block.
+                as a side effect, update live before and live after set for each instruction.
+
+        description: 
+            apply liveness analysis to ONE block.
+        '''
+        e_live_before = set()
+        if s_node == 'conclusion':
+            e_live_before = {Reg('rax'), Reg('rsp')}  # bue
+        else:
+            for i in reversed(body[s_node]):  # bue: process block bottom up
+                e_live_before = e_live_before.union(e_live_after.difference(self.write_vars(i)).union(self.read_vars(i)))
+        return e_live_before
+
+
+    def analyze_dataflow(self, g, transfer, body, e_bottom=set(), join=set.union):
+        '''
+        input:
+            g: transpose of the cfg
+            transfer: function to apply liveness analysis to a basic block.
+            e_bottom: set of location.
+            join: set of location.
+
+        output:
+
+        description:
+
+        '''
+        print('ANALYZE DATAFLOW')
+        trans_g = transpose(g)
+        de_live_before = dict((v, e_bottom) for v in g.vertices())
+        de_live_before['conclusion'] = {Reg('rax'), Reg('rsp')}  # bue
+        ls_work = deque(g.vertices())
+        while ls_work:
+            s_node = ls_work.pop()
+            le_live_after = [de_live_before[s_vertex] for s_vertex in trans_g.adjacent(s_node)]  # bue: adjacent are downstream nodes => live after set
+            e_live_after = reduce(join, le_live_after, e_bottom)  # bue: why is e_bottom here? ist is an empty set.
+            e_live_before = transfer(s_node, e_live_after, body=body)
+            if e_live_before != de_live_before[s_node]:
+                de_live_before[s_node] = e_live_before
+                ls_work.extend(g.adjacent(s_node))
+        return de_live_before
 
     def uncover_live(self, p: X86Program) -> Dict[instr, Set[location]]:
         match p:
             case X86Program(body):
-                live_before = {}
-                live_after = {}
+                #live_before = {}
+                #live_after = {}
+
                 cfg = self.blocks_to_graph(body)
-                cfg_trans = transpose(cfg)
-                live_before_block = \
-                    {'conclusion': {Reg('rax'), Reg('rsp')}}
-                for l in topological_sort(cfg_trans):
-                    if l != 'conclusion':
-                        adj_live = [live_before_block[v] \
-                                    for v in cfg.adjacent(l)]
-                        live_before_succ = set().union(*adj_live)
-                        for i in reversed(body[l]):
-                            self.uncover_live_instr(i, live_before_succ,
-                                                    live_before, live_after)
-                            live_before_succ = live_before[i]
-                        live_before_block[l] = live_before_succ
+
+                #cfg_trans = transpose(cfg)
+                #live_before_block = {'conclusion': {Reg('rax'), Reg('rsp')}}
+
+                #for l in topological_sort(cfg_trans):
+                #    if l != 'conclusion':
+                #        adj_live = [live_before_block[v] for v in cfg.adjacent(l)]
+                #        live_before_succ = set().union(*adj_live)
+                #        for i in reversed(body[l]):
+                #            self.uncover_live_instr(i, live_before_succ, live_before, live_after)
+                #            live_before_succ = live_before[i]
+                #        live_before_block[l] = live_before_succ
+
+                # BUE: here i am. 
+                de_live_before = self.analyze_dataflow(g=cfg, transfer=self.transfer, body=body)
+
                 trace("uncover live:")
-                self.trace_live(p, live_before, live_after)
-                return live_after
+                #self.trace_live(p, live_before=de_live_before, live_after=de_live_after)
+                return de_live_before
 
 
     ###########################################################################
@@ -793,8 +862,10 @@ class Compiler:
     #            return G
 
 
-    def build_interference_blocks(self, blocks,
-                           live_after: Dict[instr, Set[location]]) -> UndirectedAdjList:
+    def build_interference_blocks(self, 
+            blocks,
+            live_after: Dict[instr, Set[location]]
+        ) -> UndirectedAdjList: 
         graph = UndirectedAdjList()
         for (l, ss) in blocks.items():
             for i in ss:
@@ -916,6 +987,7 @@ class Compiler:
 
     def assign_homes(self, pseudo_x86: X86Program) -> X86Program:
         live_after = self.uncover_live(pseudo_x86)
+        print("BUEEEEE:", live_after)
         graph = self.build_interference(pseudo_x86, live_after)
         #trace(graph.show().source)
         trace("")
