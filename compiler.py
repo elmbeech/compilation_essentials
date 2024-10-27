@@ -89,7 +89,7 @@ import interp_Lif
 import type_check_Lif
 import interp_Cif
 import type_check_Cif
-from interp_x86.eval_x86 import interp_x86
+#from interp_x86.eval_x86 import interp_x86
 
 from functools import reduce
 
@@ -300,8 +300,10 @@ class Compiler:
             case While(test, body, []):
                 new_test, l_tmp = self.rco_exp(test, False)
                 new_body = [self.rco_stmt(stm) for stm in body]
-                return [Assign([lhs], rhs) for (lhs, rhs) in l_tmp] \
-                    + [While(new_test, sum(new_body, []), [])]
+                new_test = make_begin(l_tmp, new_test)
+                return [While(new_test, sum(new_body, []), [])]
+                #return [Assign([lhs], rhs) for (lhs, rhs) in l_tmp] \
+                #    + [While(new_test, sum(new_body, []), [])]
 
             case _:
                 raise Exception('error in rco_stmt, unhandled: ' + repr(s))
@@ -814,10 +816,12 @@ class Compiler:
         if s_node == 'conclusion':
             e_live_before_block = {Reg('rax'), Reg('rsp')}  # bue
         else:
+            e_live_after = e_live_after_block
             for i in reversed(body[s_node]):  # bue: process block bottom up
                 if not(i in de_live_before.keys()):
                     de_live_before[i] = set()
                 de_live_before[i] = de_live_before[i].union(e_live_after.difference(self.write_vars(i)).union(self.read_vars(i)))
+                e_live_after = de_live_before[i]
             e_live_before_block = de_live_before[i]
         return e_live_before_block
 
@@ -851,7 +855,7 @@ class Compiler:
             e_live_before_block = transfer(s_node, e_live_after_block, de_live_before=de_live_before, body=body)
             print('BUE e_live_before_block!', e_live_before_block)
             if e_live_before_block != de_live_before_block[s_node]:
-                de_live_before_block[s_node] = e_live_before
+                de_live_before_block[s_node] = e_live_before_block
                 ls_work.extend(g.adjacent(s_node))
         print('BUE end analyze data fow!')
         return de_live_before
@@ -1276,38 +1280,38 @@ class Compiler:
                 return X86Program(body)
 
 
-typecheck_Lvar = type_check_Lvar.TypeCheckLvar().type_check
-typecheck_dict = {
-    'source': typecheck_Lvar,
-    'partial_eval': typecheck_Lvar,
-    'remove_complex_operands': typecheck_Lvar,
-}
-interpLvar = interp_Lvar.InterpLvar().interp
-interp_dict = {
-    'partial_eval': interpLvar,
-    'remove_complex_operands': interpLvar,
-    'select_instructions': interp_x86,
-    'assign_homes': interp_x86,
-    'patch_instructions': interp_x86,
-}
+#typecheck_Lvar = type_check_Lvar.TypeCheckLvar().type_check
+#typecheck_dict = {
+#    'source': typecheck_Lvar,
+#    'partial_eval': typecheck_Lvar,
+#    'remove_complex_operands': typecheck_Lvar,
+#}
+#interpLvar = interp_Lvar.InterpLvar().interp
+#interp_dict = {
+#    'partial_eval': interpLvar,
+#    'remove_complex_operands': interpLvar,
+#    'select_instructions': interp_x86,
+#    'assign_homes': interp_x86,
+#    'patch_instructions': interp_x86,
+#}
 
-typecheck_Lif = type_check_Lif.TypeCheckLif().type_check
-typecheck_Cif = type_check_Cif.TypeCheckCif().type_check
-typecheck_dict = {
-    'source': typecheck_Lif,
-    'shrink': typecheck_Lif,
-    'uniquify': typecheck_Lif,
-    'remove_complex_operands': typecheck_Lif,
-    'explicate_control': typecheck_Cif,
-}
-interpLif = interp_Lif.InterpLif().interp
-interpCif = interp_Cif.InterpCif().interp
-interp_dict = {
-    'shrink': interpLif,
-    'uniquify': interpLif,
-    'remove_complex_operands': interpLif,
-    'explicate_control': interpCif,
-    'select_instructions': interp_x86,
-    'assign_homes': interp_x86,
-    'patch_instructions': interp_x86,
-}
+#typecheck_Lif = type_check_Lif.TypeCheckLif().type_check
+#typecheck_Cif = type_check_Cif.TypeCheckCif().type_check
+#typecheck_dict = {
+#    'source': typecheck_Lif,
+#    'shrink': typecheck_Lif,
+#    'uniquify': typecheck_Lif,
+#    'remove_complex_operands': typecheck_Lif,
+#    'explicate_control': typecheck_Cif,
+#}
+#interpLif = interp_Lif.InterpLif().interp
+#interpCif = interp_Cif.InterpCif().interp
+#interp_dict = {
+#    'shrink': interpLif,
+#    'uniquify': interpLif,
+#    'remove_complex_operands': interpLif,
+#    'explicate_control': interpCif,
+#    'select_instructions': interp_x86,
+#    'assign_homes': interp_x86,
+#    'patch_instructions': interp_x86,
+#}
