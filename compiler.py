@@ -336,24 +336,15 @@ class Compiler:
 
     def create_loop(self, stmts: List[stmt], cont: List[stmt],
                      basic_blocks: Dict[str, List[stmt]]) -> List[stmt]:
-        print('BUEE: create_loop')
         match stmts:
-            #case [Goto(l)]:
-            #      return stmts
-
             case [While(test, body, [])]:
-                new_cont = self.create_block(cont, basic_blocks)
-                print('BUEE new_cont:', new_cont)
                 label = generate_name('loop')
+                new_cont = self.create_block(cont, basic_blocks)
                 new_body = [Goto(label)]
-                print('BUEE new_body:', new_body)
                 for i in reversed(body):
                     new_body = self.explicate_stmt(i, new_body, basic_blocks)
-                print('BUEE new_body:', new_body)
                 stmts = self.explicate_pred(test, new_body, new_cont, basic_blocks)
-                print('BUEE stmts:', stmts)
-                basic_blocks[label] = stmts  #[Goto(label)]
-                print('BUEE basic_blocks:', basic_blocks)
+                basic_blocks[label] = stmts
                 return [Goto(label)]
 
             case _:
@@ -462,15 +453,14 @@ class Compiler:
                     new_els = self.explicate_stmt(s, new_els, basic_blocks)
                 return self.explicate_pred(test, new_body, new_els, basic_blocks)
 
-            case While(test, body, []):  # BUE: fix this
-                new_cont = self.create_block(cont, basic_blocks)
+            case While(test, body, []):
                 label = generate_name('loop')
+                new_cont = self.create_block(cont, basic_blocks)
                 new_body = [Goto(label)]
                 for i in reversed(body):
                     new_body = self.explicate_stmt(i, new_body, basic_blocks)
                 stmts = self.explicate_pred(test, new_body, new_cont, basic_blocks)
-                basic_blocks[label] = stmts 
-                print('BUEE basic_blocks:', basic_blocks)
+                basic_blocks[label] = stmts
                 return [Goto(label)]
 
 
@@ -807,11 +797,13 @@ class Compiler:
 
         output:
             e_live_before: live before set for that block.
-                as a side effect, update live before and live after set for each instruction.
+                as a side effect, update live before and live after set
+                for each instruction.
 
         description:
             apply liveness analysis to ONE block.
         '''
+        #print('\ne_live_before block:', s_node)
         e_live_before_block = None
         if s_node == 'conclusion':
             e_live_before_block = {Reg('rax'), Reg('rsp')}  # bue
@@ -821,6 +813,7 @@ class Compiler:
                 if not(i in de_live_before.keys()):
                     de_live_before[i] = set()
                 de_live_before[i] = de_live_before[i].union(e_live_after.difference(self.write_vars(i)).union(self.read_vars(i)))
+                #print('e_live_before:', s_node, i, de_live_before[i])
                 e_live_after = de_live_before[i]
             e_live_before_block = de_live_before[i]
         return e_live_before_block
@@ -835,30 +828,35 @@ class Compiler:
             join: set of location.
 
         output:
+            de_live_before: dictionary of live before location sets,
+            one per instruction, ready to be used for assigne homes.
 
         description:
-
+            note: this function is running on forward analysis input.
+            so, if you wanna do a backwards analysis,
+            transpose your graph before input.
         '''
-        print('BUE bergin analyze data fow!')
+        #print('BUE begin analyze data fow!')
         trans_g = transpose(g)
-        #print('BUE g', g.show())
-        #print('BUE trans_g', trans_g.show())
+        #print('BUE g:', g.show())
+        #print('BUE trans_g:', trans_g.show())
         de_live_before = {}
         de_live_before_block = dict((v, e_bottom) for v in g.vertices())
         de_live_before_block['conclusion'] = {Reg('rax'), Reg('rsp')}  # bue
         ls_work = deque(g.vertices())
-        print('BUE ls_work!', ls_work)
+        #print('BUE ls_work!', ls_work)
         while ls_work:
             s_node = ls_work.pop()
             le_live_after_block = [de_live_before_block[s_vertex] for s_vertex in trans_g.adjacent(s_node)]  # bue: adjacent are downstream nodes => live after set
             e_live_after_block = reduce(join, le_live_after_block, e_bottom)
             e_live_before_block = transfer(s_node, e_live_after_block, de_live_before=de_live_before, body=body)
-            print('BUE e_live_before_block!', e_live_before_block)
+            #print('BUE e_live_before_block!', e_live_before_block)
             if e_live_before_block != de_live_before_block[s_node]:
                 de_live_before_block[s_node] = e_live_before_block
                 ls_work.extend(g.adjacent(s_node))
-        print('BUE end analyze data fow!')
+        #print('BUE end analyze data fow!')
         return de_live_before
+
 
     def uncover_live(self, p: X86Program) -> Dict[instr, Set[location]]:
         match p:
@@ -867,6 +865,7 @@ class Compiler:
                 de_live_after = {}
 
                 cfg = self.blocks_to_graph(body)
+                cfg = transpose(cfg)
 
                 #cfg_trans = transpose(cfg)
                 #live_before_block = {'conclusion': {Reg('rax'), Reg('rsp')}}
@@ -880,12 +879,11 @@ class Compiler:
                 #            live_before_succ = live_before[i]
                 #        live_before_block[l] = live_before_succ
 
-                # BUE: here i am.
                 de_live_before = self.analyze_dataflow(g=cfg, transfer=self.transfer, body=body)
 
                 #trace("uncover live:")
                 #self.trace_live(p, live_before=de_live_before, live_after=de_live_after)
-                print('BUE de_live_before', de_live_before)
+                #print('BUE de_live_before:', de_live_before)
                 return de_live_before
 
 
@@ -1028,10 +1026,9 @@ class Compiler:
 
     def assign_homes(self, pseudo_x86: X86Program) -> X86Program:
         live_after = self.uncover_live(pseudo_x86)
-        print("BUEEEEE:", live_after)
         graph = self.build_interference(pseudo_x86, live_after)
         #trace(graph.show().source)
-        trace("")
+        #trace("")
         return self.allocate_registers(pseudo_x86, graph)
 
 
@@ -1116,28 +1113,21 @@ class Compiler:
     #            new_p.used_callee = used_callee
     #            return new_p
 
-    def alloc_reg_blocks(self, blocks,
-                         graph: UndirectedAdjList) -> X86Program:
-        variables = set().union(*[self.collect_locals_instrs(ss) \
-                                  for (l, ss) in blocks.items()])
+    def alloc_reg_blocks(self, blocks, graph: UndirectedAdjList) -> X86Program:
+        variables = set().union(*[self.collect_locals_instrs(ss) for (l, ss) in blocks.items()])
         (color, spills) = self.color_graph(graph, variables)
         used_callee = self.used_callee_reg(variables, color)
         num_callee = len(used_callee)
-        home = {x: self.identify_home(color[x], 8 + 8 * num_callee) \
-                for x in variables}
-        new_blocks = {l: self.assign_homes_instrs(ss, home) \
-               for (l, ss) in blocks.items()}
+        home = {x: self.identify_home(color[x], 8 + 8 * num_callee) for x in variables}
+        new_blocks = {l: self.assign_homes_instrs(ss, home) for (l, ss) in blocks.items()}
         return (new_blocks, used_callee, num_callee, spills)
 
-    def allocate_registers(self, p: X86Program,
-                           graph: UndirectedAdjList) -> X86Program:
+    def allocate_registers(self, p: X86Program, graph: UndirectedAdjList) -> X86Program:
         match p:
             case X86Program(blocks):
-                (new_blocks, used_callee, num_callee, spills) = \
-                    self.alloc_reg_blocks(blocks, graph)
+                (new_blocks, used_callee, num_callee, spills) = self.alloc_reg_blocks(blocks, graph)
                 new_p = X86Program(new_blocks)
-                new_p.stack_space = align(8 * (num_callee + len(spills)), 16) \
-                                    - 8 * num_callee
+                new_p.stack_space = align(8 * (num_callee + len(spills)), 16) - 8 * num_callee
                 new_p.used_callee = used_callee
                 return new_p
 
