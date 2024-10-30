@@ -84,7 +84,7 @@ from graph import UndirectedAdjList, DirectedAdjList, transpose, topological_sor
 #from register_allocator import byte_to_full_reg
 import sys
 import os
-from typing import List, Dict, Set, Tuple
+from typing import List, Dict, Set  #,Tuple bue 2024-10-30: overloads Tuple from ast! 
 import interp_Lif
 import type_check_Lif
 import interp_Cif
@@ -142,6 +142,7 @@ class Compiler:
             case Module(body):
                 return Module([self.shrink_stmt(s) for s in body])
 
+
     def shrink_stmt(self, s: stmt) -> stmt:
         match s:
             case Assign(targets, value):
@@ -164,51 +165,115 @@ class Compiler:
             case _:
                 raise Exception('shrink_stmt: unexpected: ' + repr(s))
 
+
     def shrink_exp(self, e: expr) -> expr:
         match e:
-            case Name(id):
+            case Name(var):
                 return e
+
             case Constant(value):
                 return e
+
             case BinOp(left, op, right):
                 l = self.shrink_exp(left);
                 r = self.shrink_exp(right)
                 return BinOp(l, op, r)
+
             case UnaryOp(op, operand):
                 rand = self.shrink_exp(operand)
                 return UnaryOp(op, rand)
+
             case Call(func, args):
                 fun = self.shrink_exp(func)
                 new_args = [self.shrink_exp(arg) for arg in args]
                 return Call(fun, new_args)
+
             case IfExp(test, body, orelse):
                 tst = self.shrink_exp(test)
                 bod = self.shrink_exp(body);
                 els = self.shrink_exp(orelse)
                 return IfExp(tst, bod, els)
+
             # Replace And with IfExp
             case BoolOp(And(), values):  # values was [left,right], bug? -Jeremy
                 l = self.shrink_exp(values[0])
                 r = self.shrink_exp(values[1])
                 return IfExp(l, r, Constant(False))
+
             # Replace Or with IfExp
             case BoolOp(Or(), values):
                 l = self.shrink_exp(values[0])
                 r = self.shrink_exp(values[1])
                 return IfExp(l, Constant(True), r)
+
             case Compare(left, [op], [right]):
                 l = self.shrink_exp(left);
                 r = self.shrink_exp(right)
                 return Compare(l, [op], [r])
+ 
+            case Tuple(exps, load):  # bue 20241030 load: https://docs.python.org/3/library/ast.html#ast.Load
+                new_exps = [self.shrink_exp(exp) for exp in exps]
+                return Tuple(new_exps, load)
+
+            case Subscript(exp, const, load):
+               new_exp = self.shrink_exp(exp)
+               new_const = self.shrink_exp(const)
+               return Subscript(new_exp, new_const, load)
+
             case _:
-                raise Exception('shrink_exp: ' + repr(e))
+                raise Exception('error shrink_exp, unhandled: ' + repr(e))
 
 
     ############################################################################
-    # Remove Complex Operands
+    # Expose Allocation Ltup -> Lalloc
     ############################################################################
 
-    def rco_exp(self, e: expr, need_atomic: bool) -> Tuple[expr,Temporaries]:
+    def ealloc_exp(self, e: expr):  #-> tuple[expr,Temporaries]:
+        match e:
+            case Constant(value):
+                return e
+             
+            case Tuple(exps, load):
+                new_exps = [self.ealloc_exp(exp) for exp in exps]
+                return Tuple(new_exps, load)
+
+            case _:
+                raise Exception('error ealloc_exp, unhandled: ' + repr(e))
+
+    def ealloc_stmt(self, s: stmt) -> List[stmt]:
+        match s:
+            #case Expr(func, [exp]):
+            case Expr(exp):
+                pass
+
+            case Assign(var, exp):
+                new_exp = self.ealloc_exp(exp)
+                return Assign(var, new_exp)
+
+            case If(exp, body, orelse)
+                pass
+
+            case While(exp, stmts, []):
+                pass
+
+            case _:
+                raise Exception('error ealloc_stmt, unhandled: ' + repr(s))
+
+    def expose_allocation(self, p: Module) -> Module:
+        match p:
+            case Module(body):
+                sss = [self.ealloc_stmt(stm) for stm in body]
+                return Module(sum(sss, []))
+    
+            case _:
+                raise Exception('error expose_allocation, unhandled: ' + repr(p))
+
+
+    ############################################################################
+    # Remove Complex Operands Lalloc -> Lmonalloc
+    ############################################################################
+
+    def rco_exp(self, e: expr, need_atomic: bool) -> tuple[expr,Temporaries]:
         match e:
             case IfExp(test, body, orelse):
                 (new_test, bs1) = self.rco_exp(test, False)
@@ -455,11 +520,10 @@ class Compiler:
 
             case While(test, body, []):
                 label = generate_name('loop')
-                new_cont = self.create_block(cont, basic_blocks)
                 new_body = [Goto(label)]
                 for i in reversed(body):
                     new_body = self.explicate_stmt(i, new_body, basic_blocks)
-                stmts = self.explicate_pred(test, new_body, new_cont, basic_blocks)
+                stmts = self.explicate_pred(test, new_body, cont, basic_blocks)
                 basic_blocks[label] = stmts
                 return [Goto(label)]
 
@@ -790,6 +854,7 @@ class Compiler:
 
 
     def transfer(self, s_node, e_live_after_block, de_live_before, body):
+        # bue 20241029: maybe rewrite as transfer function generator
         '''
         input:
             s_node: block lable.
@@ -819,7 +884,8 @@ class Compiler:
         return e_live_before_block
 
 
-    def analyze_dataflow(self, g, transfer, body, e_bottom=set(), join=set.union):
+    #join = lambda n,m : n.join(m)
+    def analyze_dataflow(self, g, transfer, body, e_bottom=set(), join=set.union): 
         '''
         input:
             g: transpose of the cfg
@@ -1044,7 +1110,7 @@ class Compiler:
 
     # O(n * n * log(n))
     def color_graph(self, graph: UndirectedAdjList,
-                    variables: Set[location]) -> Tuple[Dict[location, int], Set[location]]:
+                    variables: Set[location]) -> tuple[Dict[location, int], Set[location]]:
         spills = set()
         unavail_colors = {}
         def compare(u, v):
