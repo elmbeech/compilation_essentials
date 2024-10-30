@@ -8,8 +8,8 @@ sys.path.append('../compilation_essentials')
 sys.path.append('../compilation_essentials/interp_x86')
 
 import compiler
-import interp_Lvar, interp_Lif, interp_Cif, interp_Lwhile
-import type_check_Lvar, type_check_Lif, type_check_Cif, type_check_Lwhile, type_check_Cwhile
+import interp_Lvar, interp_Lif, interp_Cif, interp_Lwhile, interp_Ltup
+import type_check_Lvar, type_check_Lif, type_check_Cif, type_check_Lwhile, type_check_Cwhile, type_check_Ltup
 from utils import run_tests, run_one_test, enable_tracing
 from interp_x86.eval_x86 import interp_x86
 
@@ -36,17 +36,23 @@ typecheck_Cwhile = type_check_Cwhile.TypeCheckCwhile().type_check
 typecheck_dict = {
     #'source': typecheck_Lvar,
     #'source': typecheck_Lif,
-    'source': typecheck_Lwhile,
+    #'source': typecheck_Lwhile,
+    'source': type_check_Ltup,
 
     #'shrink': typecheck_Lif,
-    'shrink': typecheck_Lwhile,
+    #'shrink': typecheck_Lwhile,
+    'shrink': type_check_Ltup,
+
+    'expose_allocation': type_check_Ltup,
 
     #'remove_complex_operands': typecheck_Lvar,
     #'remove_complex_operands': typecheck_Lif,
-    'remove_complex_operands': typecheck_Lwhile,
+    #'remove_complex_operands': typecheck_Lwhile,
+    'remove_complex_operands': type_check_Ltup,
 
     #'explicate_contol': typecheck_Cif,
-    'explicate_contol': typecheck_Cwhile,
+    #'explicate_contol': typecheck_Cwhile,
+    'explicate_contol': type_check_Ltup,
 }
 
 
@@ -60,9 +66,12 @@ interpLwhile = interp_Lwhile.InterpLwhile().interp
 interpCif = interp_Cif.InterpCif().interp
 
 interp_dict = {
+
     #'remove_complex_operands': interpLvar,
     #'remove_complex_operands': interpLif,
     'remove_complex_operands': interpLwhile,
+
+    'expose_allocation': interp_Ltup,
 
     'explicate_control': interpCif,  # bue 20241021: interp_Cwhile.py does not exist
 
