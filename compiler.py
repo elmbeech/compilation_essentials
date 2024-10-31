@@ -230,74 +230,74 @@ class Compiler:
 
     def ealloc_exp(self, e: expr):  #-> tuple[expr,Temporaries]:
         match e:
+            #case BinOp(left, operator, right):
+            #    new_left = self.ealloc_exp(left)
+            #    new_right = self.ealloc_exp(right)
+            #    return BinOp(new_left, operator, new_right)
+
+            #case BoolOp(operator, [left, right]):
+            #    new_left = self.ealloc_exp(left)
+            #    new_right = self.ealloc_exp(right)
+            #    return BoolOp(operator, [new_left, new_right])
+
             case Call(Name(func), [attr]):
                 new_attr = self.ealloc_exp(attr)
                 return Call(Name(func), [new_attr])
  
+            #case Compare(left, [cmp], [right]):
+            #    new_left = self.ealloc_exp(left)
+            #    new_right = self.ealloc_exp(right)
+            #    return Compare(new_left, [cmp], [new_right])
+
             case Constant(value):
                 return e
+
+            #case IfExp(test, body, orelse):
+            #    new_test = self.ealloc_exp(test)
+            #    new_body = self.ealloc_exp(body)
+            #    new_orelse = self.ealloc_exp(orelse)
+            #    return IfExp(new_test, new_body, new_orelse)
 
             case Name(var):
                 return e
              
-            case Tuple(exps, load):
-                new_exps = [self.ealloc_exp(exp) for exp in exps]
-                return Tuple(new_exps, load)
-
             case Subscript(exp, integer, load):
                 new_exp = self.ealloc_exp(exp)
                 return Subscript(new_exp, integer, load)
 
-            case UnaryOp(operator, exp):
-                new_exp = self.ealloc_exp(exp) 
-                return UnaryOp(operator, new_exp)
+            case Tuple(exps, load):
+                new_exps = [self.ealloc_exp(exp) for exp in exps]
+                return Tuple(new_exps, load)
 
-            case BinOp(left, operator, right):
-                new_left = self.ealloc_exp(left)
-                new_right = self.ealloc_exp(right)
-                return BinOp(new_left, operator, new_right)
-
-            case BoolOp(operator, [left, right]):
-                new_left = self.ealloc_exp(left)
-                new_right = self.ealloc_exp(right)
-                return BoolOp(operator, [new_left, new_right])
-
-            case Compare(left, [cmp], [right]):
-                new_left = self.ealloc_exp(left)
-                new_right = self.ealloc_exp(right)
-                return Compare(new_left, [cmp], [new_right])
-
-            case IfExp(test, body, orelse):
-                new_test = self.ealloc_exp(test)
-                new_body = self.ealloc_exp(body)
-                new_orelse = self.ealloc_exp(orelse)
-                return IfExp(new_test, new_body, new_orelse)
-                
+            #case UnaryOp(operator, exp):
+            #    new_exp = self.ealloc_exp(exp) 
+            #    return UnaryOp(operator, new_exp)
+ 
             case _:
                 raise Exception('error ealloc_exp, unhandled: ' + repr(e))
 
 
     def ealloc_stmt(self, s: stmt) -> List[stmt]:
         match s:
-            case Expr(exp):
-                new_exp = self.ealloc_exp(exp)
-                return(Expr(new_exp))
-
             case Assign([var], exp):
                 new_var = self.ealloc_exp(var)  # bue: maybe not needed since atomic? 
                 new_exp = self.ealloc_exp(exp)
                 return Assign([new_var], new_exp)
 
-            case If(test, body, orelse):
-                new_test = self.ealloc_exp(test)
-                new_body = [self.ealloc_stmts(stm) for stm in body]
-                new_orelse = [self.ealloc_stmts(stm) for stm in orelse]
-                return If(new_exp, new_body, new_orelse)
-
-            case While(exp, stmts, []):
+            case Expr(exp):
                 new_exp = self.ealloc_exp(exp)
-                new_stmts = [self.ealloc_stmts(stm) for stm in stmts]
-                return While(new_exp, new_stmts, [])
+                return(Expr(new_exp))
+
+            #case If(test, body, orelse):
+            #    new_test = self.ealloc_exp(test)
+            #    new_body = [self.ealloc_stmts(stm) for stm in body]
+            #    new_orelse = [self.ealloc_stmts(stm) for stm in orelse]
+            #    return If(new_exp, new_body, new_orelse)
+
+            #case While(exp, stmts, []):
+            #    new_exp = self.ealloc_exp(exp)
+            #    new_stmts = [self.ealloc_stmts(stm) for stm in stmts]
+            #    return While(new_exp, new_stmts, [])
 
             case _:
                 raise Exception('error ealloc_stmt, unhandled: ' + repr(s))
