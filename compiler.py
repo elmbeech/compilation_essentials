@@ -240,8 +240,8 @@ class Compiler:
             #    new_right = self.ealloc_exp(right)
             #    return BoolOp(operator, [new_left, new_right])
 
-            case Call(Name(func), [attr]):
-                new_attr = self.ealloc_exp(attr)
+            case Call(Name(func), [attr]):  # func 'len' # to calculate memory: len  * 8 byte + 8 byte tag 
+                new_attr = self.ealloc_exp(attr) # len
                 return Call(Name(func), [new_attr])
  
             #case Compare(left, [cmp], [right]):
