@@ -60,8 +60,8 @@ import ast
 #from x86_ast import *
 #import os
 #from typing import List, Set, Dict
-import interp_Lvar
-import type_check_Lvar
+
+
 #from interp_x86.eval_x86 import interp_x86
 
 #from ast import *
@@ -76,6 +76,7 @@ from priority_queue import PriorityQueue
 
 from ast import *
 from utils import *
+from ast import Tuple
 from x86_ast import *
 from graph import UndirectedAdjList, DirectedAdjList, transpose, topological_sort, deque
 #import var
@@ -84,11 +85,18 @@ from graph import UndirectedAdjList, DirectedAdjList, transpose, topological_sor
 #from register_allocator import byte_to_full_reg
 import sys
 import os
-from typing import List, Dict, Set  #,Tuple bue 2024-10-30: overloads Tuple from ast! 
-import interp_Lif
-import type_check_Lif
-import interp_Cif
-import type_check_Cif
+from typing import List, Dict, Set  #,Tuple bue 2024-10-30: overloads Tuple from ast!
+
+# interpreater and type checker
+#import interp_Lvar
+#import type_check_Lvar
+#import interp_Lif
+#import type_check_Lif
+#import interp_Cif
+#import type_check_Cif
+import interp_Ltup
+import type_check_Ltup
+
 #from interp_x86.eval_x86 import interp_x86
 
 from functools import reduce
@@ -210,7 +218,7 @@ class Compiler:
                 l = self.shrink_exp(left);
                 r = self.shrink_exp(right)
                 return Compare(l, [op], [r])
- 
+
             case Tuple(exps, load):  # bue 20241030 load: https://docs.python.org/3/library/ast.html#ast.Load
                 new_exps = [self.shrink_exp(exp) for exp in exps]
                 return Tuple(new_exps, load)
@@ -240,17 +248,17 @@ class Compiler:
             #    new_right = self.ealloc_exp(right)
             #    return BoolOp(operator, [new_left, new_right])
 
-            case Call(Name(func), [attr]):  # func 'len' # to calculate memory: len  * 8 byte + 8 byte tag 
-                new_attr = self.ealloc_exp(attr) # len
-                return Call(Name(func), [new_attr])
- 
+    #        case Call(Name(func), [attr]):  # func 'len' # to calculate memory: len  * 8 byte + 8 byte tag
+    #            new_attr = self.ealloc_exp(attr) # len
+    #            return Call(Name(func), [new_attr])
+
             #case Compare(left, [cmp], [right]):
             #    new_left = self.ealloc_exp(left)
             #    new_right = self.ealloc_exp(right)
             #    return Compare(new_left, [cmp], [new_right])
 
-            case Constant(value):
-                return e
+    #        case Constant(value):
+    #            return e
 
             #case IfExp(test, body, orelse):
             #    new_test = self.ealloc_exp(test)
@@ -258,60 +266,136 @@ class Compiler:
             #    new_orelse = self.ealloc_exp(orelse)
             #    return IfExp(new_test, new_body, new_orelse)
 
-            case Name(var):
-                return e
-             
-            case Subscript(exp, integer, load):
-                new_exp = self.ealloc_exp(exp)
-                return Subscript(new_exp, integer, load)
+    #        case Name(var):
+    #            return e
 
-            case Tuple(exps, load):
-                new_exps = [self.ealloc_exp(exp) for exp in exps]
-                return Tuple(new_exps, load)
+    #        case Subscript(exp, integer, load):
+    #            new_exp = self.ealloc_exp(exp)
+    #            return Subscript(new_exp, integer, load)
+
+            case Tuple(exps, load): #maybe have to run for exp in exp!
+                print('BUE:', e._fields)
+                for exp in exps:
+                    print('BUEE:', exp._fields, exp.value, exp.kind)
+                    
+                # bue 20241106: call ealloc_exp() for every exp! 
+                i_word = len(exps) + 1
+                i_byte = i_word * 8
+                # temp var
+                new_var = [Assign([Name(generate_name('init'))], self.ealloc_exp(exp)) for exp in exps]
+                # conditional gargabe collection
+                new_garbage = [If(Compare(BinOp(GlobalValue('free_ptr'), Add(), i_byte), [Lt()], [GlobalValue('from_space')]), [Constant(0)], [Collect(i_byte)])]
+                # allocate memory allication
+                s_alloc = generate_name('alloc')
+                #new_memory = [Assign([Name(s_alloc)], Allocate(i_word, e.has_type))]
+                new_memory = [Assign([Name(s_alloc)], Allocate(i_word, int))]
+                new_init = []
+                for n, var in enumerate(new_var):
+                    new_init.append( Assign([Subscript(s_alloc, n, Store())], var) )
+                #new_init.append(s_alloc)
+                #new_begin = make_begin(new_var + new_garbage + new_memory + new_init, s_alloc)
+                new_begin = new_var + new_garbage + new_memory + new_init
+                print('new begining:', new_begin)
+                return new_begin
+                
 
             #case UnaryOp(operator, exp):
-            #    new_exp = self.ealloc_exp(exp) 
+            #    new_exp = self.ealloc_exp(exp)
             #    return UnaryOp(operator, new_exp)
- 
-            case _:
-                raise Exception('error ealloc_exp, unhandled: ' + repr(e))
 
+    #        case _:
+    #            raise Exception('error ealloc_exp, unhandled: ' + repr(e))
 
+         #def inject_if(self, varList):
+         #len_var = len(varList) * 8 = number of bits.
+         #if (len_var % 16) != 0:
+         #    len_var += 1
+         #number 
+         #assign_list = []
+         #print("varList: ", varList)
+         #new_assign = [Assign([Name(generate_name('init'))], i) for i in varList]
+         #new_if = [If(Compare(BinOp(GlobalValue('free_ptr'), Add(), len_var), [Lt()], [GlobalValue('from_space')]), [], [Collect(len_var)])]
+         #print("NAME LIST: ", repr(new_assign))
+
+  
     def ealloc_stmt(self, s: stmt) -> List[stmt]:
         match s:
+            case Assign([var], Tuple(exp, load)):
+                print('HELLO I AM HERE')
+                new_tup = self.ealloc_exp(Tuple(exp, load))
+                return [Assign([var], new_tup)]
+
             case Assign([var], exp):
-                new_var = self.ealloc_exp(var)  # bue: maybe not needed since atomic? 
+                #new_var = self.ealloc_exp(var)  # bue: maybe not needed since atomic?
                 new_exp = self.ealloc_exp(exp)
-                return Assign([new_var], new_exp)
+                return [Assign([var], new_exp)]
 
             case Expr(exp):
                 new_exp = self.ealloc_exp(exp)
-                return(Expr(new_exp))
+                return [Expr(new_exp)]
 
-            #case If(test, body, orelse):
-            #    new_test = self.ealloc_exp(test)
-            #    new_body = [self.ealloc_stmts(stm) for stm in body]
-            #    new_orelse = [self.ealloc_stmts(stm) for stm in orelse]
-            #    return If(new_exp, new_body, new_orelse)
+            case If(test, body, orelse):
+                new_test = self.ealloc_exp(test)
+                new_body = [self.ealloc_stmts(stm) for stm in body]
+                new_orelse = [self.ealloc_stmts(stm) for stm in orelse]
+                return [If(new_exp, new_body, new_orelse)]
 
-            #case While(exp, stmts, []):
-            #    new_exp = self.ealloc_exp(exp)
-            #    new_stmts = [self.ealloc_stmts(stm) for stm in stmts]
-            #    return While(new_exp, new_stmts, [])
+            case While(exp, stmts, []):
+                new_exp = self.ealloc_exp(exp)
+                new_stmts = [self.ealloc_stmts(stm) for stm in stmts]
+                return [While(new_exp, new_stmts, [])]
 
             case _:
                 raise Exception('error ealloc_stmt, unhandled: ' + repr(s))
 
 
     def expose_allocation(self, p: Module) -> Module:
+        # bue 20241031 todo: conditonal call to the garbage collector
+        # bue 20241031 todo: memory allocation
+        # bue 20241031 todo: have to give back Lalloc
         match p:
             case Module(body):
                 sss = [self.ealloc_stmt(stm) for stm in body]
                 print(sss)
                 return Module(sum(sss, []))
-    
+
             case _:
                 raise Exception('error expose_allocation, unhandled: ' + repr(p))
+
+
+    #def inject_if(self, varList):
+    #     len_var = len(varList)
+    #     if (len_var % 16) != 0:
+    #         len_var += 1
+    #     assign_list = []
+    #     print("varList: ", varList)
+    #     new_assign = [Assign([Name(generate_name('init'))], i) for i in varList]
+    #     new_if = [If(Compare(BinOp(GlobalValue('free_ptr'), Add(), len_var), [Lt()], [GlobalValue('from_space')]), [], [Collect(len_var)])]
+    #     print("NAME LIST: ", repr(new_assign))
+
+
+     #def expose_allocation(self, p: Module):
+         #var_list = []
+     #    match p:
+     #        case Module(body):
+     #            l_inst = []
+     #            for i in body:
+     #                match i:
+     #                    case Assign([lhs], Tuple(rhs)):  # bue 20241106: have 
+     #                        print("hit")
+                             #var_list.append(rhs)
+     #                        self.inject_if(var_list)
+     #                        l_inst.append(var_list)
+     #                        return var_list
+
+     #                    case _:
+     #                        print("I: ",repr(i))
+     #                        l_inst.append(i)
+
+     #            return l_inst
+
+     #        case _:
+     #            raise Exception('error expose_allocation, unhandled: ' + repr(p))
 
 
     ############################################################################
@@ -930,7 +1014,7 @@ class Compiler:
 
 
     #join = lambda n,m : n.join(m)
-    def analyze_dataflow(self, g, transfer, body, e_bottom=set(), join=set.union): 
+    def analyze_dataflow(self, g, transfer, body, e_bottom=set(), join=set.union):
         '''
         input:
             g: transpose of the cfg
@@ -1381,12 +1465,15 @@ class Compiler:
                 return X86Program(body)
 
 
+
+
 #typecheck_Lvar = type_check_Lvar.TypeCheckLvar().type_check
 #typecheck_dict = {
 #    'source': typecheck_Lvar,
 #    'partial_eval': typecheck_Lvar,
 #    'remove_complex_operands': typecheck_Lvar,
 #}
+
 #interpLvar = interp_Lvar.InterpLvar().interp
 #interp_dict = {
 #    'partial_eval': interpLvar,
@@ -1405,6 +1492,7 @@ class Compiler:
 #    'remove_complex_operands': typecheck_Lif,
 #    'explicate_control': typecheck_Cif,
 #}
+
 #interpLif = interp_Lif.InterpLif().interp
 #interpCif = interp_Cif.InterpCif().interp
 #interp_dict = {
@@ -1416,3 +1504,6 @@ class Compiler:
 #    'assign_homes': interp_x86,
 #    'patch_instructions': interp_x86,
 #}
+
+#typecheck_Ltup = type_check_Ltup.TypeCheckLtup().type_check
+
