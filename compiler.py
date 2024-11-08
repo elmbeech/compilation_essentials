@@ -54,52 +54,22 @@
 # stmt ::= ... | while exp: stmt+
 
 
+# python standard libraries
 import ast
-#from ast import *
-#from utils import *
-#from x86_ast import *
-#import os
-#from typing import List, Set, Dict
-
-
-#from interp_x86.eval_x86 import interp_x86
-
-#from ast import *
-#from graph import UndirectedAdjList
-from priority_queue import PriorityQueue
-#import var
-#from var import Var
-#from utils import *
-#from x86_ast import *
-#import os
-#from typing import List, Tuple, Set, Dict
-
-from ast import *
-from utils import *
-from ast import Tuple
-from x86_ast import *
-from graph import UndirectedAdjList, DirectedAdjList, transpose, topological_sort, deque
-#import var
-#from var import Temporaries
-#import register_allocator
-#from register_allocator import byte_to_full_reg
-import sys
-import os
-from typing import List, Dict, Set  #,Tuple bue 2024-10-30: overloads Tuple from ast!
-
-# interpreater and type checker
-#import interp_Lvar
-#import type_check_Lvar
-#import interp_Lif
-#import type_check_Lif
-#import interp_Cif
-#import type_check_Cif
-import interp_Ltup
-import type_check_Ltup
-
-#from interp_x86.eval_x86 import interp_x86
-
+from ast import *  # Tuple
 from functools import reduce
+import os
+import sys
+
+# essentials of compilation libraries
+from graph import UndirectedAdjList, DirectedAdjList, transpose, topological_sort, deque
+from priority_queue import PriorityQueue
+from utils import *
+from x86_ast import *
+
+
+# const and type declaration
+from typing import List, Dict, Set  #,Tuple bue 2024-10-30: overloads Tuple from ast!
 
 Binding = tuple[Name, expr]
 Temporaries = List[Binding]
@@ -107,24 +77,23 @@ Temporaries = List[Binding]
 caller_save: Set[str] = {'rax', 'rcx', 'rdx', 'rsi', 'rdi', 'r8', 'r9', 'r10', 'r11'}
 callee_save: Set[str] = {'rsp', 'rbp', 'rbx', 'r12', 'r13', 'r14', 'r15'}
 reserved_registers: Set[str] = {'rax', 'r11', 'r15', 'rsp', 'rbp', '__flag'}
-general_registers: List[str] = ['rcx', 'rdx', 'rsi', 'rdi', 'r8', 'r9', 'r10',
-                     'rbx', 'r12', 'r13', 'r14']
+general_registers: List[str] = ['rcx', 'rdx', 'rsi', 'rdi', 'r8', 'r9', 'r10', 'rbx', 'r12', 'r13', 'r14']
 registers_for_alloc: List[str] = general_registers
 # registers_for_alloc = ['rcx','rbx']
 # registers_for_alloc = ['rdi','rcx','rbx']
 arg_registers: List[str] = ['rdi', 'rsi', 'rdx', 'rcx', 'r8', 'r9']
+
 registers = set(general_registers).union(reserved_registers)
 
-caller_save_for_alloc = caller_save.difference(reserved_registers) \
-                                   .intersection(set(registers_for_alloc))
-callee_save_for_alloc = callee_save.difference(reserved_registers) \
-                                   .intersection(set(registers_for_alloc))
+caller_save_for_alloc = caller_save.difference(reserved_registers).intersection(set(registers_for_alloc))
+callee_save_for_alloc = callee_save.difference(reserved_registers).intersection(set(registers_for_alloc))
 
-byte_to_full_reg = \
-    {'ah': 'rax', 'al': 'rax',
-     'bh': 'rbx', 'bl': 'rbx',
-     'ch': 'rcx', 'cl': 'rcx',
-     'dh': 'rdx', 'dl': 'rdx'}
+byte_to_full_reg = {
+    'ah':'rax', 'al':'rax',
+    'bh':'rbx', 'bl':'rbx',
+    'ch':'rcx', 'cl':'rcx',
+    'dh':'rdx', 'dl':'rdx'
+}
 
 register_color = {'rax': -1, 'rsp': -2, 'rbp': -3, 'r11': -4, 'r15': -5, '__flag': -6}
 
@@ -135,10 +104,8 @@ extra_arg_registers = list(set(arg_registers) - set(registers_for_alloc))
 for i, r in enumerate(extra_arg_registers):
     register_color[r] = -i - 6
 
-#class Var:
-#class RegisterAllocator(var.Var):
-#class Conditionals(register_allocator.RegisterAllocator):
 
+# functions
 class Compiler:
 
     ############################################################################
@@ -235,6 +202,42 @@ class Compiler:
     ############################################################################
     # Expose Allocation Ltup -> Lalloc
     ############################################################################
+    #def expose_alloc_tuple(self, es, tupleType, allocExp)
+    #def inject_if(self, exps, type_tup, new_allocate):
+    def inject_if(self, exps, type_tup):
+            # bue 20241106: call ealloc_exp() for every exp!
+            i_word = len(exps) #+ 1
+            i_byte = i_word * 8
+            
+
+            # temp var
+            # if  tuple in tuple, have way initialized variables could be garbage collected
+            # readinhg from a variable (stack) is save.
+            #s_temp = generate_name('init')
+            #new_var = [Assign([Name(s_temp)], self.ealloc_exp(exp)) for exp in exps]
+            new_var = [Assign([Name(generate_name('init'))], self.ealloc_exp(exp)) for exp in exps]
+
+            # conditional gargabe collection
+            new_garbage = [If(Compare(BinOp(GlobalValue('free_ptr'), Add(), Constant(i_byte)), [Lt()], [GlobalValue('fromspace_end')]), [], [Collect(i_byte)])]
+            #new_garbage = [If(Compare(BinOp(GlobalValue('free_ptr'), Add(), i_byte), [Lt()], [GlobalValue('fromspace_end')]), [Constant(0)], [Collect(i_byte)])]
+
+            # allocate memory allication
+            s_alloc = generate_name('alloc')
+            #new_allocate = Allocate(i_word, type_tup)
+            #new_memory = [Assign([Name(s_alloc)], new_allocate)]
+            new_memory = [Assign([Name(s_alloc)], Allocate(i_word, type_tup))]
+
+            # initialize memory
+            new_init = []
+            for n, var in enumerate(new_var):
+                print('hello:', var._fields, var.targets)
+                new_init.append( Assign([Subscript(Name(s_alloc), Constant(n), Store())], var.targets[0]) )
+
+            # output
+            new_begin = Begin(new_var + new_garbage + new_memory + new_init, Name(s_alloc))  # bue 20241108: why not make_begin()?
+            print('new begining!')
+            return new_begin
+
 
     def ealloc_exp(self, e: expr):  #-> tuple[expr,Temporaries]:
         match e:
@@ -248,17 +251,17 @@ class Compiler:
             #    new_right = self.ealloc_exp(right)
             #    return BoolOp(operator, [new_left, new_right])
 
-    #        case Call(Name(func), [attr]):  # func 'len' # to calculate memory: len  * 8 byte + 8 byte tag
-    #            new_attr = self.ealloc_exp(attr) # len
-    #            return Call(Name(func), [new_attr])
+            case Call(Name(func), [attr]):  # func 'len' # to calculate memory: len  * 8 byte + 8 byte tag
+                new_attr = self.ealloc_exp(attr) # len
+                return Call(Name(func), [new_attr])
 
             #case Compare(left, [cmp], [right]):
             #    new_left = self.ealloc_exp(left)
             #    new_right = self.ealloc_exp(right)
             #    return Compare(new_left, [cmp], [new_right])
 
-    #        case Constant(value):
-    #            return e
+            case Constant(value):
+                return e
 
             #case IfExp(test, body, orelse):
             #    new_test = self.ealloc_exp(test)
@@ -266,65 +269,31 @@ class Compiler:
             #    new_orelse = self.ealloc_exp(orelse)
             #    return IfExp(new_test, new_body, new_orelse)
 
-    #        case Name(var):
-    #            return e
+            case Name(var):
+                return e
 
-    #        case Subscript(exp, integer, load):
-    #            new_exp = self.ealloc_exp(exp)
-    #            return Subscript(new_exp, integer, load)
+            case Subscript(exp, integer, load):
+                new_exp = self.ealloc_exp(exp)
+                return Subscript(new_exp, integer, load)
 
-            case Tuple(exps, load): #maybe have to run for exp in exp!
-                print('BUE:', e._fields)
-                for exp in exps:
-                    print('BUEE:', exp._fields, exp.value, exp.kind)
-                    
-                # bue 20241106: call ealloc_exp() for every exp! 
-                i_word = len(exps) + 1
-                i_byte = i_word * 8
-                # temp var
-                new_var = [Assign([Name(generate_name('init'))], self.ealloc_exp(exp)) for exp in exps]
-                # conditional gargabe collection
-                new_garbage = [If(Compare(BinOp(GlobalValue('free_ptr'), Add(), i_byte), [Lt()], [GlobalValue('from_space')]), [Constant(0)], [Collect(i_byte)])]
-                # allocate memory allication
-                s_alloc = generate_name('alloc')
-                #new_memory = [Assign([Name(s_alloc)], Allocate(i_word, e.has_type))]
-                new_memory = [Assign([Name(s_alloc)], Allocate(i_word, int))]
-                new_init = []
-                for n, var in enumerate(new_var):
-                    new_init.append( Assign([Subscript(s_alloc, n, Store())], var) )
-                #new_init.append(s_alloc)
-                #new_begin = make_begin(new_var + new_garbage + new_memory + new_init, s_alloc)
-                new_begin = new_var + new_garbage + new_memory + new_init
-                print('new begining:', new_begin)
-                return new_begin
-                
+            case Tuple(exps, load):
+                type_tup = e.has_type
+                new_exps = [self.ealloc_exp(exp) for exp in exps]
+                print('BUE e._fields:', e._fields)
+                print('BUE type_tup:', type_tup)
+                #return self.inject_if(new_exps, type_tup, new_allocate)
+                return self.inject_if(new_exps, type_tup)
 
             #case UnaryOp(operator, exp):
             #    new_exp = self.ealloc_exp(exp)
             #    return UnaryOp(operator, new_exp)
 
-    #        case _:
-    #            raise Exception('error ealloc_exp, unhandled: ' + repr(e))
+            case _:
+                raise Exception('error ealloc_exp, unhandled: ' + repr(e))
 
-         #def inject_if(self, varList):
-         #len_var = len(varList) * 8 = number of bits.
-         #if (len_var % 16) != 0:
-         #    len_var += 1
-         #number 
-         #assign_list = []
-         #print("varList: ", varList)
-         #new_assign = [Assign([Name(generate_name('init'))], i) for i in varList]
-         #new_if = [If(Compare(BinOp(GlobalValue('free_ptr'), Add(), len_var), [Lt()], [GlobalValue('from_space')]), [], [Collect(len_var)])]
-         #print("NAME LIST: ", repr(new_assign))
 
-  
     def ealloc_stmt(self, s: stmt) -> List[stmt]:
         match s:
-            case Assign([var], Tuple(exp, load)):
-                print('HELLO I AM HERE')
-                new_tup = self.ealloc_exp(Tuple(exp, load))
-                return [Assign([var], new_tup)]
-
             case Assign([var], exp):
                 #new_var = self.ealloc_exp(var)  # bue: maybe not needed since atomic?
                 new_exp = self.ealloc_exp(exp)
@@ -355,9 +324,12 @@ class Compiler:
         # bue 20241031 todo: have to give back Lalloc
         match p:
             case Module(body):
-                sss = [self.ealloc_stmt(stm) for stm in body]
-                print(sss)
-                return Module(sum(sss, []))
+                l_stm = []
+                for stm in body:
+                    abc = self.ealloc_stmt(stm)
+                    print('\nhello:', abc)
+                    l_stm.extend(abc)
+                return Module(l_stm)
 
             case _:
                 raise Exception('error expose_allocation, unhandled: ' + repr(p))
@@ -381,7 +353,7 @@ class Compiler:
      #            l_inst = []
      #            for i in body:
      #                match i:
-     #                    case Assign([lhs], Tuple(rhs)):  # bue 20241106: have 
+     #                    case Assign([lhs], Tuple(rhs)):  # bue 20241106: have
      #                        print("hit")
                              #var_list.append(rhs)
      #                        self.inject_if(var_list)
@@ -397,6 +369,9 @@ class Compiler:
      #        case _:
      #            raise Exception('error expose_allocation, unhandled: ' + repr(p))
 
+
+# rco: begin someting else
+# exp ctrl: self.generic_explicate+pred: generating a if.
 
     ############################################################################
     # Remove Complex Operands Lalloc -> Lmonalloc
@@ -677,6 +652,24 @@ class Compiler:
     ############################################################################
     # Select Instructions
     ############################################################################
+
+# case Assign([lhs], Allocate(length, TupleType(ts))):
+#pointer_mask | length | forwarding
+#length_tag = length << 1  # bit shift
+#[0000000]
+
+#ptr_tag = 0
+#i = 7
+#for t in ts:
+#    ptr_tag |= bool2int(drlf.is_root_type(t)) << i
+#    i += 1
+
+#case Collect(size):
+#    return[INst(''
+#
+#case Assign([lhs], Call(Name('len'), [tup]
+
+
     def select_arg(self, a: expr) -> arg:
         match a:
             case Constant(True):
@@ -1133,6 +1126,10 @@ class Compiler:
                         if v != d:
                             graph.add_edge(d, v)
 
+     # if it is a tuple we through in a bunch of ection t
+     # to not get stup on it
+
+
 
     ############################################################################
     # Assign Homes
@@ -1231,6 +1228,15 @@ class Compiler:
     # Allocate Registers
     ###########################################################################
 
+# valid color
+# will be reduced
+# separate color for regular stack and root stack
+# by even or odd
+# the one has an offset
+# vector
+# integer
+# care full no integeer n the roor stack.
+
     def choose_color(self, v, unavail_colors):
         i = 0
         while i in unavail_colors[v]:
@@ -1316,6 +1322,10 @@ class Compiler:
         home = {x: self.identify_home(color[x], 8 + 8 * num_callee) for x in variables}
         new_blocks = {l: self.assign_homes_instrs(ss, home) for (l, ss) in blocks.items()}
         return (new_blocks, used_callee, num_callee, spills)
+
+# split for root spill and stack spill
+# do thy need to go for register or root register or stack, and where on the stack.
+#
 
     def allocate_registers(self, p: X86Program, graph: UndirectedAdjList) -> X86Program:
         match p:
@@ -1442,6 +1452,8 @@ class Compiler:
     #                       Instr('retq', [])]
     #            return X86Program(prelude + body + concl)
 
+# check for small heap sizes
+
     def prelude_and_conclusion(self, p: X86Program) -> X86Program:
         match p:
             case X86Program(body):
@@ -1463,47 +1475,4 @@ class Compiler:
                 body['main'] = main
                 body['conclusion'] = concl
                 return X86Program(body)
-
-
-
-
-#typecheck_Lvar = type_check_Lvar.TypeCheckLvar().type_check
-#typecheck_dict = {
-#    'source': typecheck_Lvar,
-#    'partial_eval': typecheck_Lvar,
-#    'remove_complex_operands': typecheck_Lvar,
-#}
-
-#interpLvar = interp_Lvar.InterpLvar().interp
-#interp_dict = {
-#    'partial_eval': interpLvar,
-#    'remove_complex_operands': interpLvar,
-#    'select_instructions': interp_x86,
-#    'assign_homes': interp_x86,
-#    'patch_instructions': interp_x86,
-#}
-
-#typecheck_Lif = type_check_Lif.TypeCheckLif().type_check
-#typecheck_Cif = type_check_Cif.TypeCheckCif().type_check
-#typecheck_dict = {
-#    'source': typecheck_Lif,
-#    'shrink': typecheck_Lif,
-#    'uniquify': typecheck_Lif,
-#    'remove_complex_operands': typecheck_Lif,
-#    'explicate_control': typecheck_Cif,
-#}
-
-#interpLif = interp_Lif.InterpLif().interp
-#interpCif = interp_Cif.InterpCif().interp
-#interp_dict = {
-#    'shrink': interpLif,
-#    'uniquify': interpLif,
-#    'remove_complex_operands': interpLif,
-#    'explicate_control': interpCif,
-#    'select_instructions': interp_x86,
-#    'assign_homes': interp_x86,
-#    'patch_instructions': interp_x86,
-#}
-
-#typecheck_Ltup = type_check_Ltup.TypeCheckLtup().type_check
 
