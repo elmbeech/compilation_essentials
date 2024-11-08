@@ -218,8 +218,8 @@ class Compiler:
             new_var = [Assign([Name(generate_name('init'))], self.ealloc_exp(exp)) for exp in exps]
 
             # conditional gargabe collection
-            new_garbage = [If(Compare(BinOp(GlobalValue('free_ptr'), Add(), Constant(i_byte)), [Lt()], [GlobalValue('fromspace_end')]), [], [Collect(i_byte)])]
-            #new_garbage = [If(Compare(BinOp(GlobalValue('free_ptr'), Add(), i_byte), [Lt()], [GlobalValue('fromspace_end')]), [Constant(0)], [Collect(i_byte)])]
+            #new_garbage = [If(Compare(BinOp(GlobalValue('free_ptr'), Add(), Constant(i_byte)), [Lt()], [GlobalValue('fromspace_end')]), [], [Collect(i_byte)])]
+            new_garbage = [If(Compare(BinOp(GlobalValue('free_ptr'), Add(), i_byte), [Lt()], [GlobalValue('fromspace_end')]), [Expr(Constant(0))], [Collect(i_byte)])]
 
             # allocate memory allication
             s_alloc = generate_name('alloc')
