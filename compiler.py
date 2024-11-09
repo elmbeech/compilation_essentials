@@ -235,6 +235,9 @@ class Compiler:
                 new_right = self.ealloc_exp(right)
                 return BoolOp(operator, [new_left, new_right])
 
+            case Call(Name(func), []):
+                return Call(Name(func), [])
+
             case Call(Name(func), [attr]):  # func 'len' # to calculate memory: len * 8 byte + 8 byte tag
                 new_attr = self.ealloc_exp(attr)  # len
                 return Call(Name(func), [new_attr])
@@ -286,13 +289,13 @@ class Compiler:
 
             case If(test, body, orelse):
                 new_test = self.ealloc_exp(test)
-                new_body = [self.ealloc_stmts(stm) for stm in body]
-                new_orelse = [self.ealloc_stmts(stm) for stm in orelse]
-                return [If(new_exp, new_body, new_orelse)]
+                new_body = [self.ealloc_stmt(stm) for stm in body]
+                new_orelse = [self.ealloc_stmt(stm) for stm in orelse]
+                return [If(new_test, new_body, new_orelse)]
 
             case While(exp, stmts, []):
                 new_exp = self.ealloc_exp(exp)
-                new_stmts = [self.ealloc_stmts(stm) for stm in stmts]
+                new_stmts = [self.ealloc_stmt(stm) for stm in stmts]
                 return [While(new_exp, new_stmts, [])]
 
             case _:
@@ -324,12 +327,12 @@ class Compiler:
 
     def rco_exp(self, e: expr, need_atomic: bool) -> tuple[expr,Temporaries]:
         match e:
-            case Allocate(i_int,t_type):
-                (new_i,i_tmp) = self.rco_exp(i_int,False)
-                (new_t,t_tmp) = self.rco_exp(t_type,False)
+            case Allocate(i_int, t_type):
+                (new_i, i_tmp) = self.rco_exp(i_int, False)
+                (new_t, t_tmp) = self.rco_exp(t_type, False)
                 if need_atomic:
                     tmp = Name(generate_name('tmp'))
-                    alloc = Allocate(new_i,new_ti)
+                    alloc = Allocate(new_i, new_ti)
                     return tmp, i_tmp + t_tmp + [(tmp, alloc)]
                 else:
                     return Allocate(new_i, new_tmp), i_tmp + t_tmp
@@ -338,10 +341,10 @@ class Compiler:
                 new_exp,tmp_new = self.rco_exp(exp,True)
                 if need_atomic:
                     tmp = Name(generate_name('tmp'))
-                    beg = Begin(stmts,new_exp)
+                    beg = Begin(stmts, new_exp)
                     return tmp, tmp_new + [(tmp, beg)]
                 else:
-                    return Begin(stmts,new_exp), tmp_new
+                    return Begin(stmts, new_exp), tmp_new
 
             case BinOp(left, op, right):
                 (l, bs1) = self.rco_exp(left, True)
