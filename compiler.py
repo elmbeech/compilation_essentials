@@ -112,35 +112,6 @@ class Compiler:
     # Shrink
     ############################################################################
 
-    def shrink(self, p: Module) -> Module:
-        match p:
-            case Module(body):
-                return Module([self.shrink_stmt(s) for s in body])
-
-
-    def shrink_stmt(self, s: stmt) -> stmt:
-        match s:
-            case Assign(targets, value):
-                return Assign([self.shrink_exp(e) for e in targets], self.shrink_exp(value))
-
-            case Expr(value):
-                return Expr(self.shrink_exp(value))
-
-            case If(test, body, orelse):
-                return If(self.shrink_exp(test),
-                          [self.shrink_stmt(s) for s in body],
-                          [self.shrink_stmt(s) for s in orelse])
-
-            case While(cmp, body, []):
-                return While(
-                    self.shrink_exp(cmp),
-                    [self.shrink_stmt(s) for s in body],
-                    [])
-
-            case _:
-                raise Exception('shrink_stmt: unexpected: ' + repr(s))
-
-
     def shrink_exp(self, e: expr) -> expr:
         match e:
             case Name(var):
@@ -199,75 +170,88 @@ class Compiler:
                 raise Exception('error shrink_exp, unhandled: ' + repr(e))
 
 
+    def shrink_stmt(self, s: stmt) -> stmt:
+        match s:
+            case Assign(targets, value):
+                return Assign([self.shrink_exp(e) for e in targets], self.shrink_exp(value))
+
+            case Expr(value):
+                return Expr(self.shrink_exp(value))
+
+            case If(test, body, orelse):
+                return If(self.shrink_exp(test),
+                          [self.shrink_stmt(s) for s in body],
+                          [self.shrink_stmt(s) for s in orelse])
+
+            case While(cmp, body, []):
+                return While(
+                    self.shrink_exp(cmp),
+                    [self.shrink_stmt(s) for s in body],
+                    [])
+
+            case _:
+                raise Exception('shrink_stmt: unexpected: ' + repr(s))
+
+
+    def shrink(self, p: Module) -> Module:
+        match p:
+            case Module(body):
+                return Module([self.shrink_stmt(s) for s in body])
+
+
     ############################################################################
     # Expose Allocation Ltup -> Lalloc
     ############################################################################
-    #def expose_alloc_tuple(self, es, tupleType, allocExp)
-    #def inject_if(self, exps, type_tup, new_allocate):
-    def inject_if(self, exps, type_tup):
-            # bue 20241106: call ealloc_exp() for every exp!
-            i_word = len(exps) #+ 1
-            i_byte = i_word * 8
-            
+    def ealloc_tuple(self, exps, type_tup):
+        # if  tuple in tuple, half way initialized variables could be garbage collected
+        # readinhg from a variable (stack) is save.
 
-            # temp var
-            # if  tuple in tuple, have way initialized variables could be garbage collected
-            # readinhg from a variable (stack) is save.
-            #s_temp = generate_name('init')
-            #new_var = [Assign([Name(s_temp)], self.ealloc_exp(exp)) for exp in exps]
-            new_var = [Assign([Name(generate_name('init'))], self.ealloc_exp(exp)) for exp in exps]
-
-            # conditional gargabe collection
-            #new_garbage = [If(Compare(BinOp(GlobalValue('free_ptr'), Add(), Constant(i_byte)), [Lt()], [GlobalValue('fromspace_end')]), [], [Collect(i_byte)])]
-            new_garbage = [If(Compare(BinOp(GlobalValue('free_ptr'), Add(), i_byte), [Lt()], [GlobalValue('fromspace_end')]), [Expr(Constant(0))], [Collect(i_byte)])]
-
-            # allocate memory allication
-            s_alloc = generate_name('alloc')
-            #new_allocate = Allocate(i_word, type_tup)
-            #new_memory = [Assign([Name(s_alloc)], new_allocate)]
-            new_memory = [Assign([Name(s_alloc)], Allocate(i_word, type_tup))]
-
-            # initialize memory
-            new_init = []
-            for n, var in enumerate(new_var):
-                print('hello:', var._fields, var.targets)
-                new_init.append( Assign([Subscript(Name(s_alloc), Constant(n), Store())], var.targets[0]) )
-
-            # output
-            new_begin = Begin(new_var + new_garbage + new_memory + new_init, Name(s_alloc))  # bue 20241108: why not make_begin()?
-            print('new begining!')
-            return new_begin
+        # calculate memory needed
+        i_word = len(exps) #+ 1
+        i_byte = i_word * 8
+        # temp var
+        new_var = [Assign([Name(generate_name('init'))], self.ealloc_exp(exp)) for exp in exps]
+        # conditional gargabe collection
+        new_garbage = [If(Compare(BinOp(GlobalValue('free_ptr'), Add(), Constant(i_byte)), [Lt()], [GlobalValue('fromspace_end')]), [Expr(Constant(0))], [Collect(i_byte)])]
+        # allocate memory allication
+        s_alloc = generate_name('alloc')
+        new_memory = [Assign([Name(s_alloc)], Allocate(i_word, type_tup))]
+        # initialize memory
+        new_init = [Assign([Subscript(Name(s_alloc), Constant(n), Store())], var.targets[0]) for n, var in enumerate(new_var)]
+        # output
+        new_begin = Begin(new_var + new_garbage + new_memory + new_init, Name(s_alloc))
+        return new_begin
 
 
     def ealloc_exp(self, e: expr):  #-> tuple[expr,Temporaries]:
         match e:
-            #case BinOp(left, operator, right):
-            #    new_left = self.ealloc_exp(left)
-            #    new_right = self.ealloc_exp(right)
-            #    return BinOp(new_left, operator, new_right)
+            case BinOp(left, operator, right):
+                new_left = self.ealloc_exp(left)
+                new_right = self.ealloc_exp(right)
+                return BinOp(new_left, operator, new_right)
 
-            #case BoolOp(operator, [left, right]):
-            #    new_left = self.ealloc_exp(left)
-            #    new_right = self.ealloc_exp(right)
-            #    return BoolOp(operator, [new_left, new_right])
+            case BoolOp(operator, [left, right]):
+                new_left = self.ealloc_exp(left)
+                new_right = self.ealloc_exp(right)
+                return BoolOp(operator, [new_left, new_right])
 
-            case Call(Name(func), [attr]):  # func 'len' # to calculate memory: len  * 8 byte + 8 byte tag
-                new_attr = self.ealloc_exp(attr) # len
+            case Call(Name(func), [attr]):  # func 'len' # to calculate memory: len * 8 byte + 8 byte tag
+                new_attr = self.ealloc_exp(attr)  # len
                 return Call(Name(func), [new_attr])
 
-            #case Compare(left, [cmp], [right]):
-            #    new_left = self.ealloc_exp(left)
-            #    new_right = self.ealloc_exp(right)
-            #    return Compare(new_left, [cmp], [new_right])
+            case Compare(left, [cmp], [right]):
+                new_left = self.ealloc_exp(left)
+                new_right = self.ealloc_exp(right)
+                return Compare(new_left, [cmp], [new_right])
 
             case Constant(value):
                 return e
 
-            #case IfExp(test, body, orelse):
-            #    new_test = self.ealloc_exp(test)
-            #    new_body = self.ealloc_exp(body)
-            #    new_orelse = self.ealloc_exp(orelse)
-            #    return IfExp(new_test, new_body, new_orelse)
+            case IfExp(test, body, orelse):
+                new_test = self.ealloc_exp(test)
+                new_body = self.ealloc_exp(body)
+                new_orelse = self.ealloc_exp(orelse)
+                return IfExp(new_test, new_body, new_orelse)
 
             case Name(var):
                 return e
@@ -279,14 +263,11 @@ class Compiler:
             case Tuple(exps, load):
                 type_tup = e.has_type
                 new_exps = [self.ealloc_exp(exp) for exp in exps]
-                print('BUE e._fields:', e._fields)
-                print('BUE type_tup:', type_tup)
-                #return self.inject_if(new_exps, type_tup, new_allocate)
-                return self.inject_if(new_exps, type_tup)
+                return self.ealloc_tuple(new_exps, type_tup)
 
-            #case UnaryOp(operator, exp):
-            #    new_exp = self.ealloc_exp(exp)
-            #    return UnaryOp(operator, new_exp)
+            case UnaryOp(operator, exp):
+                new_exp = self.ealloc_exp(exp)
+                return UnaryOp(operator, new_exp)
 
             case _:
                 raise Exception('error ealloc_exp, unhandled: ' + repr(e))
@@ -327,7 +308,6 @@ class Compiler:
                 l_stm = []
                 for stm in body:
                     abc = self.ealloc_stmt(stm)
-                    print('\nhello:', abc)
                     l_stm.extend(abc)
                 return Module(l_stm)
 
@@ -335,81 +315,33 @@ class Compiler:
                 raise Exception('error expose_allocation, unhandled: ' + repr(p))
 
 
-    #def inject_if(self, varList):
-    #     len_var = len(varList)
-    #     if (len_var % 16) != 0:
-    #         len_var += 1
-    #     assign_list = []
-    #     print("varList: ", varList)
-    #     new_assign = [Assign([Name(generate_name('init'))], i) for i in varList]
-    #     new_if = [If(Compare(BinOp(GlobalValue('free_ptr'), Add(), len_var), [Lt()], [GlobalValue('from_space')]), [], [Collect(len_var)])]
-    #     print("NAME LIST: ", repr(new_assign))
-
-
-     #def expose_allocation(self, p: Module):
-         #var_list = []
-     #    match p:
-     #        case Module(body):
-     #            l_inst = []
-     #            for i in body:
-     #                match i:
-     #                    case Assign([lhs], Tuple(rhs)):  # bue 20241106: have
-     #                        print("hit")
-                             #var_list.append(rhs)
-     #                        self.inject_if(var_list)
-     #                        l_inst.append(var_list)
-     #                        return var_list
-
-     #                    case _:
-     #                        print("I: ",repr(i))
-     #                        l_inst.append(i)
-
-     #            return l_inst
-
-     #        case _:
-     #            raise Exception('error expose_allocation, unhandled: ' + repr(p))
-
-
-# rco: begin someting else
-# exp ctrl: self.generic_explicate+pred: generating a if.
-
     ############################################################################
     # Remove Complex Operands Lalloc -> Lmonalloc
     ############################################################################
 
+# rco: begin someting else
+# exp ctrl: self.generic_explicate+pred: generating a if.
+
     def rco_exp(self, e: expr, need_atomic: bool) -> tuple[expr,Temporaries]:
         match e:
-            case IfExp(test, body, orelse):
-                (new_test, bs1) = self.rco_exp(test, False)
-                (new_body, bs2) = self.rco_exp(body, False)
-                (new_orelse, bs3) = self.rco_exp(orelse, False)
-                new_body = make_begin(bs2, new_body)
-                new_orelse = make_begin(bs3, new_orelse)
+            case Allocate(i_int,t_type):
+                (new_i,i_tmp) = self.rco_exp(i_int,False)
+                (new_t,t_tmp) = self.rco_exp(t_type,False)
                 if need_atomic:
                     tmp = Name(generate_name('tmp'))
-                    return (tmp, bs1 + [(tmp, IfExp(new_test, new_body,
-                                                    new_orelse))])
+                    alloc = Allocate(new_i,new_ti)
+                    return tmp, i_tmp + t_tmp + [(tmp, alloc)]
                 else:
-                    return IfExp(new_test, new_body, new_orelse), bs1
+                    return Allocate(new_i, new_tmp), i_tmp + t_tmp
 
-            case Compare(left, [op], [right]):
-                (l, bs1) = self.rco_exp(left, True)
-                (r, bs2) = self.rco_exp(right, True)
+            case Begin(stmts,exp):
+                new_exp,tmp_new = self.rco_exp(exp,True)
                 if need_atomic:
                     tmp = Name(generate_name('tmp'))
-                    return tmp, bs1 + bs2 + [(tmp, Compare(l, [op], [r]))]
+                    beg = Begin(stmts,new_exp)
+                    return tmp, tmp_new + [(tmp, beg)]
                 else:
-                    return Compare(l, [op], [r]), bs1 + bs2
-
-            case Name(id):
-                return e, []
-
-            case Constant(value):
-                if need_atomic and self.big_constant(e):
-                    tmp = Name(generate_name('tmp'))
-                    return tmp, [(tmp, Constant(value))]
-                else:
-                    return e, []
+                    return Begin(stmts,new_exp), tmp_new
 
             case BinOp(left, op, right):
                 (l, bs1) = self.rco_exp(left, True)
@@ -420,6 +352,68 @@ class Compiler:
                     return tmp, bs1 + bs2 + [(tmp, b)]
                 else:
                     return BinOp(l, op, r), bs1 + bs2
+
+            case Call(func, args):
+                (new_func, bs1) = self.rco_exp(func, True)
+                (new_args, bss2) = unzip([self.rco_exp(arg, True) for arg in args])
+                if need_atomic:
+                    tmp = Name(generate_name('tmp'))
+                    return (tmp, bs1 + sum(bss2, []) + [(tmp, Call(new_func, new_args, []))])
+                else:
+                    return Call(new_func, new_args, []), bs1 + sum(bss2, [])
+
+            case Collect(exp):
+                (new_exp, tmp_new) = self.rco_exp(exp,False)
+                if need_atomic:
+                    tmp = Name(generate_name('tmp'))
+                    collec = Collect(new_exp)
+                    return tmp, tmp_new + [(tmp, collec)]
+                else:
+                    return Collect(new_exp), tmp_new
+
+            case Compare(left, [op], [right]):
+                (l, bs1) = self.rco_exp(left, True)
+                (r, bs2) = self.rco_exp(right, True)
+                if need_atomic:
+                    tmp = Name(generate_name('tmp'))
+                    return tmp, bs1 + bs2 + [(tmp, Compare(l, [op], [r]))]
+                else:
+                    return Compare(l, [op], [r]), bs1 + bs2
+
+            case Constant(value):
+                if need_atomic and self.big_constant(e):
+                    tmp = Name(generate_name('tmp'))
+                    return tmp, [(tmp, Constant(value))]
+                else:
+                    return e, []
+
+            case GlobalValue(id):
+                return e, []
+
+            case IfExp(test, body, orelse):
+                (new_test, bs1) = self.rco_exp(test, False)
+                (new_body, bs2) = self.rco_exp(body, False)
+                (new_orelse, bs3) = self.rco_exp(orelse, False)
+                new_body = make_begin(bs2, new_body)
+                new_orelse = make_begin(bs3, new_orelse)
+                if need_atomic:
+                    tmp = Name(generate_name('tmp'))
+                    return (tmp, bs1 + [(tmp, IfExp(new_test, new_body, new_orelse))])
+                else:
+                    return IfExp(new_test, new_body, new_orelse), bs1
+
+            case Name(id):
+                return e, []
+
+            case Subscript(atm1,atm2,Load()):
+                (new_atm1, tmp1) = self.rco_exp(atm1,True)
+                (new_atm2, tmp2) = self.rco_exp(atm2,True)
+                if need_atomic:
+                    tmp = Name(generate_name('tmp'))
+                    sc = Subscript(new_atm1,new_atm2, Load())
+                    return tmp, tmp2 + tmp2 + [(tmp, sc)]
+                else:
+                    return Subscript(new_atm1, new_atm2, Load()), tmp1 + tmp2
 
             # needed for tests/int64/min-int.py
             case UnaryOp(USub(), Constant(value)):
@@ -433,16 +427,6 @@ class Compiler:
                 else:
                     return UnaryOp(op, rand), bs
 
-            case Call(func, args):
-                (new_func, bs1) = self.rco_exp(func, True)
-                (new_args, bss2) = \
-                    unzip([self.rco_exp(arg, True) for arg in args])
-                if need_atomic:
-                    tmp = Name(generate_name('tmp'))
-                    return (tmp, bs1 + sum(bss2, [])
-                            + [(tmp, Call(new_func, new_args, []))])
-                else:
-                    return Call(new_func, new_args, []), bs1 + sum(bss2, [])
             case _:
                 raise Exception('error in rco_exp, unhandled: ' + repr(e))
 
@@ -451,20 +435,17 @@ class Compiler:
         match s:
             case Assign(targets, value):
                 new_value, bs = self.rco_exp(value, False)
-                return [Assign([lhs], rhs) for (lhs, rhs) in bs] \
-                    + [Assign(targets, new_value)]
+                return [Assign([lhs], rhs) for (lhs, rhs) in bs] + [Assign(targets, new_value)]
 
             case Expr(value):
                 new_value, bs = self.rco_exp(value, False)
-                return [Assign([lhs], rhs) for (lhs, rhs) in bs] \
-                    + [Expr(new_value)]
+                return [Assign([lhs], rhs) for (lhs, rhs) in bs] + [Expr(new_value)]
 
             case If(test, body, orelse):
                 new_test, bs = self.rco_exp(test, False)
                 new_body = [self.rco_stmt(stm) for stm in body]
                 new_orelse = [self.rco_stmt(stm) for stm in orelse]
-                return [Assign([lhs], rhs) for (lhs, rhs) in bs] \
-                       + [If(new_test, sum(new_body, []), sum(new_orelse, []))]
+                return [Assign([lhs], rhs) for (lhs, rhs) in bs] + [If(new_test, sum(new_body, []), sum(new_orelse, []))]
 
             case While(test, body, []):
                 new_test, l_tmp = self.rco_exp(test, False)
