@@ -398,6 +398,7 @@ class Compiler:
                 return e, []
 
             case Subscript(atm1, atm2, Load()):
+                print("HELLO SUBSCRIPT LOAD")
                 (new_atm1, tmp1) = self.rco_exp(atm1, True)
                 (new_atm2, tmp2) = self.rco_exp(atm2, True)
                 if need_atomic:
@@ -406,6 +407,17 @@ class Compiler:
                     return tmp, tmp1 + tmp2 + [(tmp, scr)]
                 else:
                     return Subscript(new_atm1, new_atm2, Load()), tmp1 + tmp2
+
+            case Subscript(atm1, atm2, Store()):
+                print("HELLO SUBSCRIPT STORE")
+                (new_atm1, tmp1) = self.rco_exp(atm1, True)
+                (new_atm2, tmp2) = self.rco_exp(atm2, True)
+                if need_atomic:
+                    tmp = Name(generate_name('tmp'))
+                    scr = Subscript(new_atm1, new_atm2, Store())
+                    return tmp, tmp1 + tmp2 + [(tmp, scr)]
+                else:
+                    return Subscript(new_atm1, new_atm2, Store()), tmp1 + tmp2
 
             # needed for tests/int64/min-int.py
             case UnaryOp(USub(), Constant(value)):
@@ -427,7 +439,7 @@ class Compiler:
         match s:
             #case Assign([Subscript(atm1, atm2, Store())], rhs):
             case Assign([subscript], rhs):
-                print("ASSIGN SUBS")
+                print("HELLO ASSIGN SUBS")
                 new_subs, tmp_subs = self.rco_exp(subscript, True)
                 new_rhs, tmp_rhs = self.rco_exp(rhs, True)
                 # bue 20241111: what to do with tmp_subs and tmp_rhs?
