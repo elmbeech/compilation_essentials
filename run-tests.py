@@ -55,6 +55,11 @@ typecheck_dict = {
     #'explicate_contol': typecheck_Cif,
     #'explicate_contol': typecheck_Cwhile,
     'explicate_contol': typecheck_Ctup,
+
+    # x86
+    #'select_instructions'
+    #'assign_homes'
+    #'patch_instructions'
 }
 
 
@@ -83,9 +88,9 @@ interp_dict = {
 
     'explicate_control': interpCtup,  # bue 20241021: interp_Cwhile.py does not exist
 
-    'select_instructions': interp_x86,
-    'assign_homes': interp_x86,
-    'patch_instructions': interp_x86,
+    #'select_instructions': interp_x86,
+    #'assign_homes': interp_x86,
+    #'patch_instructions': interp_x86,
 }
 
 

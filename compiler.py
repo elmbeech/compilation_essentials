@@ -211,14 +211,13 @@ class Compiler:
         i_byte = i_word * 8 + 8 # bue 20241111: space at front of the 64 bit tag p109
         # temp var
         new_var = [Assign([Name(generate_name('init'))], self.ealloc_exp(exp)) for exp in exps]
-        # conditional gargabe collection
+        # conditional garbage collection
         new_garbage = [If(Compare(BinOp(GlobalValue('free_ptr'), Add(), Constant(i_byte)), [Lt()], [GlobalValue('fromspace_end')]), [Expr(Constant(0))], [Collect(i_byte)])]
         # allocate memory allication
         s_alloc = generate_name('alloc')
         new_memory = [Assign([Name(s_alloc)], Allocate(i_word, type_tup))]
         # initialize memory
         new_init = [Assign([Subscript(Name(s_alloc), Constant(n), Store())], var.targets[0]) for n, var in enumerate(new_var)]
-        #new_init = [Assign([Subscript(Name(s_alloc), Constant(n), Store())], Name(var.targets[0].id)) for n, var in enumerate(new_var)]
         # output
         new_begin = Begin(new_var + new_garbage + new_memory + new_init, Name(s_alloc))
         return new_begin
@@ -242,8 +241,8 @@ class Compiler:
             case Call(Name(func), []):
                 return Call(Name(func), [])
 
-            case Call(Name(func), [attr]):  # func 'len' # to calculate memory: len * 8 byte + 8 byte tag
-                new_attr = self.ealloc_exp(attr)  # len
+            case Call(Name(func), [attr]):
+                new_attr = self.ealloc_exp(attr)
                 return Call(Name(func), [new_attr])
 
             case Compare(left, [cmp], [right]):
@@ -307,9 +306,6 @@ class Compiler:
 
 
     def expose_allocation(self, p: Module) -> Module:
-        # bue 20241031 todo: conditonal call to the garbage collector
-        # bue 20241031 todo: memory allocation
-        # bue 20241031 todo: have to give back Lalloc
         match p:
             case Module(body):
                 l_stm = []
@@ -326,31 +322,24 @@ class Compiler:
     # Remove Complex Operands Lalloc -> Lmonalloc
     ############################################################################
 
-# rco: begin someting else
-# exp ctrl: self.generic_explicate+pred: generating a if.
 
     def rco_exp(self, e: expr, need_atomic: bool) -> tuple[expr,Temporaries]:
         match e:
             case Allocate(i_int, t_type):
-                #(new_t, t_tmp) = self.rco_exp(t_type, False)
-                #if need_atomic:
-                #    tmp = Name(generate_name('tmp'))
-                #    alloc = Allocate(i_int, new_t)
-                #    return tmp, t_tmp + [(tmp, alloc)]
-                #else:
-                #    return Allocate(new_i, new_tmp), i_tmp + t_tmp
                 return e, []
 
             case Begin(stmts, exp):
+                print("HELLLO BEGIN")
                 new_stmts = [self.rco_stmt(stm) for stm in stmts]
-                #new_exp,tmp_new = self.rco_exp(stmts, False)
                 new_exp, tmp_new = self.rco_exp(exp, False)
-                if need_atomic:
-                    tmp = Name(generate_name('tmp'))
-                    beg = Begin(new_stmts, new_exp)
-                    return tmp, tmp_new + [(tmp, beg)]
-                else:
-                    return Begin(new_stmts, new_exp), tmp_new
+                return Begin(new_stmts, new_exp), tmp_new
+
+                #new_exp, tmp_new = self.rco_exp(exp, True)
+                #if need_atomic:
+                #    tmp = Name(generate_name('tmp'))
+                #    bgn = Begin(new_stmts, new_exp)
+                #    return tmp, tmp_new + [(tmp, bgn)]
+                #else:
 
             case BinOp(left, op, right):
                 print("HELLLO BIN OP")
@@ -372,15 +361,6 @@ class Compiler:
                 else:
                     return Call(new_func, new_args, []), bs1 + sum(bss2, [])
 
-            case Collect(exp):
-                (new_exp, tmp_new) = self.rco_exp(exp,False)
-                if need_atomic:
-                    tmp = Name(generate_name('tmp'))
-                    collec = Collect(new_exp)
-                    return tmp, tmp_new + [(tmp, collec)]
-                else:
-                    return Collect(new_exp), tmp_new
-
             case Compare(left, [op], [right]):
                 print("HELLO COMPARE")
                 (l, bs1) = self.rco_exp(left, True)
@@ -398,13 +378,8 @@ class Compiler:
                 else:
                     return e, []
 
-            case GlobalValue(value):
+            case GlobalValue(variable):
                 print("HELLO GLOBAL VAUE")
-                #(new_value, new_tmp) = self.rco_exp(value, True)
-                #if need_atomic:
-                #    tmp = Name(generate_name('tmp'))
-                #    return new_tmp, [(new_tmp, GlobalValue(value))]
-                #else:
                 return e, []
 
             case IfExp(test, body, orelse):
@@ -419,7 +394,7 @@ class Compiler:
                 else:
                     return IfExp(new_test, new_body, new_orelse), bs1
 
-            case Name(value):
+            case Name(variable):
                 return e, []
 
             case Subscript(atm1, atm2, Load()):
@@ -427,8 +402,8 @@ class Compiler:
                 (new_atm2, tmp2) = self.rco_exp(atm2, True)
                 if need_atomic:
                     tmp = Name(generate_name('tmp'))
-                    sc = Subscript(new_atm1,new_atm2, Load())
-                    return tmp, tmp2 + tmp2 + [(tmp, sc)]
+                    scr = Subscript(new_atm1, new_atm2, Load())
+                    return tmp, tmp1 + tmp2 + [(tmp, scr)]
                 else:
                     return Subscript(new_atm1, new_atm2, Load()), tmp1 + tmp2
 
@@ -450,12 +425,13 @@ class Compiler:
 
     def rco_stmt(self, s: stmt) -> List[stmt]:
         match s:
-            case Assign([Subscript(atm1, atm2, Store())], rhs):
+            #case Assign([Subscript(atm1, atm2, Store())], rhs):
+            case Assign([subscript], rhs):
                 print("ASSIGN SUBS")
-                #new_atm1, new_tmp1 = self.rco_exp(atm1, True)
-                #new_atm2, new_tmp2 = self.rco_exp(atm2, True)
-                #return [Assign([Subscript(new_atm1,new_atm2,Store())], rhs)]
-                return s
+                new_subs, tmp_subs = self.rco_exp(subscript, True)
+                new_rhs, tmp_rhs = self.rco_exp(rhs, True)
+                # bue 20241111: what to do with tmp_subs and tmp_rhs?
+                return [Assign([new_subs], new_rhs)]
 
             case Assign(targets, value):
                 new_value, bs = self.rco_exp(value, False)
@@ -476,11 +452,9 @@ class Compiler:
 
             case While(test, body, []):
                 new_test, l_tmp = self.rco_exp(test, False)
-                new_body = [self.rco_stmt(stm) for stm in body]
                 new_test = make_begin(l_tmp, new_test)
+                new_body = [self.rco_stmt(stm) for stm in body]
                 return [While(new_test, sum(new_body, []), [])]
-                #return [Assign([lhs], rhs) for (lhs, rhs) in l_tmp] \
-                #    + [While(new_test, sum(new_body, []), [])]
 
             case _:
                 raise Exception('error in rco_stmt, unhandled: ' + repr(s))
