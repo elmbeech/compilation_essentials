@@ -207,8 +207,8 @@ class Compiler:
         # readinhg from a variable (stack) is save.
 
         # calculate memory needed
-        i_word = len(exps) #+ 1
-        i_byte = i_word * 8
+        i_word = len(exps)
+        i_byte = i_word * 8 + 8 # bue 20241111: space at front of the 64 bit tag p109
         # temp var
         new_var = [Assign([Name(generate_name('init'))], self.ealloc_exp(exp)) for exp in exps]
         # conditional gargabe collection
@@ -225,6 +225,9 @@ class Compiler:
 
     def ealloc_exp(self, e: expr):  #-> tuple[expr,Temporaries]:
         match e:
+            case Begin(exprs):
+               return e
+
             case BinOp(left, operator, right):
                 new_left = self.ealloc_exp(left)
                 new_right = self.ealloc_exp(right)
@@ -338,7 +341,7 @@ class Compiler:
                     return Allocate(new_i, new_tmp), i_tmp + t_tmp
 
             case Begin(stmts,exp):
-                new_exp,tmp_new = self.rco_exp(exp,True)
+                new_exp,tmp_new = self.rco_exp(exp, False)
                 if need_atomic:
                     tmp = Name(generate_name('tmp'))
                     beg = Begin(stmts, new_exp)
@@ -390,7 +393,7 @@ class Compiler:
                 else:
                     return e, []
 
-            case GlobalValue(id):
+            case GlobalValue(value):
                 return e, []
 
             case IfExp(test, body, orelse):
@@ -405,12 +408,12 @@ class Compiler:
                 else:
                     return IfExp(new_test, new_body, new_orelse), bs1
 
-            case Name(id):
+            case Name(value):
                 return e, []
 
-            case Subscript(atm1,atm2,Load()):
-                (new_atm1, tmp1) = self.rco_exp(atm1,True)
-                (new_atm2, tmp2) = self.rco_exp(atm2,True)
+            case Subscript(atm1, atm2, Load()):
+                (new_atm1, tmp1) = self.rco_exp(atm1, True)
+                (new_atm2, tmp2) = self.rco_exp(atm2, True)
                 if need_atomic:
                     tmp = Name(generate_name('tmp'))
                     sc = Subscript(new_atm1,new_atm2, Load())
@@ -658,23 +661,35 @@ class Compiler:
 
     def select_arg(self, a: expr) -> arg:
         match a:
+            case BinOp(l, Add(), r):
+                return BinOp(self.select_arg(l), Add(), self.select_arg(r))
+
+            case BinOp(l, Sub(), r):
+                return BinOp(self.select_arg(l), Sub(), self.select_arg(r))
+
             case Constant(True):
                 return Immediate(1)
 
             case Constant(False):
                 return Immediate(0)
 
-            case Reg(id):  # cause how we handle Return
-                return Reg(id)
-
-            case Name(id):
-                return Variable(id)
-
             case Constant(value):
                 return Immediate(value)
 
+            case GlobalValue(value):
+                return Global(value)
+
+            case Name(value):
+                return Variable(value)
+
+            case Reg(value):  # cause how we handle Return
+                return Reg(value)
+
+            case Subscript(atm1, atm2, Store()):
+                return self.select_arg(atm1)
+
             case _:
-                raise Exception('select_arg unhandled: ' + repr(e))
+                raise Exception('select_arg unhandled: ' + repr(a))
 
     def select_op(self, op: operator) -> str:
         match op:
@@ -704,28 +719,63 @@ class Compiler:
                 raise Exception('select_op unhandled: ' + repr(op))
 
     def select_stmt(self, s: stmt) -> List[instr]:
+        pointer_tag = 0
         match s:
-            case If(Compare(left, [op], [right]), [Goto(thn)], [Goto(els)]):
-                l = self.select_arg(left)
-                r = self.select_arg(right)
-                return [Instr('cmpq', [r, l]),
-                        JumpIf(self.select_op(op), thn),
-                        Jump(els)]
-
-            case Goto(label):
-                return [Jump(label)]
-
-            case Assign([lhs], UnaryOp(Not(), operand)):
+            case Assign([lhs], Allocate(leng, TupleType(ty))):
                 new_lhs = self.select_arg(lhs)
-                new_operand = self.select_arg(operand)
-                return ([Instr('movq', [new_operand, new_lhs])]
-                        if new_lhs != new_operand else []) \
-                    + [Instr('xorq', [Immediate(1), new_lhs])]
+                new_len = 8 * (leng + 1)
+                #print('repr: ',[Instr('movq',[Global('free_ptr'),Reg('r11')]),Instr('addq',[new_len,Global('free_ptr')]),Instr('movq',[Immediate(pointer_tag),Reg('rsi')])])
+                return [
+                    Instr('movq', [Global('free_ptr'), Reg('r11')]),
+                    Instr('addq', [Immediate(new_len), Global('free_ptr')]),
+                    Instr('movq', [Immediate(pointer_tag), Reg('rsi')])
+                ]
+
+            case Assign([lhs], BinOp(left, Add(), right)) if left == lhs:
+                new_lhs = self.select_arg(lhs)
+                r = self.select_arg(right)
+                return [Instr('addq', [r, new_lhs])]
+
+            case Assign([lhs], BinOp(left, Add(), right)) if right == lhs:
+                new_lhs = self.select_arg(lhs)
+                l = self.select_arg(left)
+                return [Instr('addq', [l, new_lhs])]
 
             case Assign([lhs], BinOp(left, Sub(), right)) if left == lhs:
                 new_lhs = self.select_arg(lhs)
                 r = self.select_arg(right)
                 return [Instr('subq', [r, new_lhs])]
+
+            case Assign([lhs], BinOp(left, Sub(), right)) if right == lhs:
+                new_lhs = self.select_arg(lhs)
+                l = self.select_arg(left)
+                # why not use subq?
+                return [
+                    Instr('negq', [new_lhs]),
+                    Instr('addq', [l, new_lhs])
+                ]
+
+            case Assign([lhs], BinOp(left, op, right)):
+                new_lhs = self.select_arg(lhs)
+                l = self.select_arg(left)
+                r = self.select_arg(right)
+                return [
+                    Instr('movq', [l, new_lhs]),
+                    Instr(self.select_op(op), [r, new_lhs])
+                ]
+
+            case Assign([lhs], Call(Name('input_int'), [])):
+                new_lhs = self.select_arg(lhs)
+                return [
+                    Callq('read_int', 0),
+                    Instr('movq', [Reg('rax'), new_lhs])
+                ]
+
+            case Assign([lhs], Call(Name('print'), [operand])):
+                return [
+                    Instr('movq', [self.select_arg(operand), Reg('rdi')]),
+                    Callq('print_int', 1)
+                ]
 
             case Assign([lhs], Compare(left, [op], [right])):
                 new_lhs = self.select_arg(lhs)
@@ -741,9 +791,68 @@ class Compiler:
                        [Instr('set' + self.select_op(op), [ByteReg('al')]),
                         Instr('movzbq', [ByteReg('al'), new_lhs])]
 
-            case Return(value):
-                ins = self.select_stmt(Assign([Reg('rax')], value))
-                return ins + [Jump('conclusion')]
+            case Assign([lhs], Constant(value)):
+                new_lhs = self.select_arg(lhs)
+                rhs = self.select_arg(Constant(value))
+                return [Instr('movq', [rhs, new_lhs])]
+
+            case Assign([lhs], Name(value)):
+                new_lhs = self.select_arg(lhs)
+                if Name(value) != lhs:
+                    return [Instr('movq', [Variable(value), new_lhs])]
+                else:
+                    return []
+
+            case Assign([lhs], Subscript(atm1, atm2, Load())):
+                new_lhs = self.select_arg(lhs)
+                new_atm1 = self.select_arg(atm1)
+                new_atm2 = self.select_arg(atm2)
+                return [
+                    Instr('movq', [new_atm1, Reg('r11')]),
+                    Instr('movq', [Immediate(8), Reg('r11')])
+                ]
+
+            case Assign([Subscript(atm1, atm2, Store())], atm3):
+                new_atm3 = self.select_arg(atm3)
+                new_atm1 = self.select_arg(atm1)
+                new_atm2 = self.select-arg(atm2)
+                return [
+                    Instr('movq', [new_atm1, Reg('r11')]),
+                    Instr('movq', [new_atm3, Immediate(8)])
+                ]
+
+            case Assign([lhs], UnaryOp(Not(), operand)):
+                new_lhs = self.select_arg(lhs)
+                new_operand = self.select_arg(operand)
+
+                return ([Instr('movq', [new_operand, new_lhs])]
+                        if new_lhs != new_operand else []) \
+                    + [Instr('xorq', [Immediate(1), new_lhs])]
+
+                # bue 20241111: i think the return above for the reference compiler is not functinal!
+                #l_inst = [Instr('xorq', [Immediate(1), new_lhs]
+                #if new_lhs != new_operand:
+                #    l_inst.insert(0, Instr('movq', [new_operand, new_lhs]) )
+                #return l_inst
+
+            case Assign([lhs], UnaryOp(USub(), Constant(i))):
+                new_lhs = self.select_arg(lhs)
+                # not just an optimization; needed to handle min-int
+                return [Instr('movq', [Immediate(neg64(i)), new_lhs])]
+
+            case Assign([lhs], UnaryOp(op, operand)):
+                new_lhs = self.select_arg(lhs)
+                rand = self.select_arg(operand)
+                return [
+                    Instr('movq', [rand, new_lhs]),
+                    Instr(self.select_op(op), [new_lhs])
+                ]
+
+            case Collect(integer):
+                return [
+                    Instr('movq', [Reg('r15'), Reg('rdi')]),
+                    Instr('movq', [Immediate(integer), Reg('rsi')]), Callq('collect',integer)
+                ]
 
             case Expr(Call(Name('input_int'), [])):
                 return [Callq('read_int', 0)]
@@ -755,61 +864,19 @@ class Compiler:
             case Expr(value):
                 return []
 
-            case Assign([lhs], Name(id)):
-                new_lhs = self.select_arg(lhs)
-                if Name(id) != lhs:
-                    return [Instr('movq', [Variable(id), new_lhs])]
-                else:
-                    return []
+            case Goto(label):
+                return [Jump(label)]
 
-            case Assign([lhs], Constant(value)):
-                new_lhs = self.select_arg(lhs)
-                rhs = self.select_arg(Constant(value))
-                return [Instr('movq', [rhs, new_lhs])]
-
-            case Assign([lhs], UnaryOp(USub(), Constant(i))):
-                new_lhs = self.select_arg(lhs)
-                # not just an optimization; needed to handle min-int
-                return [Instr('movq',[Immediate(neg64(i)),new_lhs])]
-
-            case Assign([lhs], UnaryOp(op, operand)):
-                new_lhs = self.select_arg(lhs)
-                rand = self.select_arg(operand)
-                return [Instr('movq', [rand, new_lhs]),
-                        Instr(self.select_op(op), [new_lhs])]
-
-            case Assign([lhs], BinOp(left, Add(), right)) if left == lhs:
-                new_lhs = self.select_arg(lhs)
-                r = self.select_arg(right)
-                return [Instr('addq', [r, new_lhs])]
-
-            case Assign([lhs], BinOp(left, Add(), right)) if right == lhs:
-                new_lhs = self.select_arg(lhs)
-                l = self.select_arg(left)
-                return [Instr('addq', [l, new_lhs])]
-
-            case Assign([lhs], BinOp(left, Sub(), right)) if right == lhs:
-                new_lhs = self.select_arg(lhs)
-                l = self.select_arg(left)
-                # why not use subq?
-                return [Instr('negq', [new_lhs]),
-                        Instr('addq', [l, new_lhs])]
-
-            case Assign([lhs], BinOp(left, op, right)):
-                new_lhs = self.select_arg(lhs)
+            case If(Compare(left, [op], [right]), [Goto(thn)], [Goto(els)]):
                 l = self.select_arg(left)
                 r = self.select_arg(right)
-                return [Instr('movq', [l, new_lhs]),
-                        Instr(self.select_op(op), [r, new_lhs])]
+                return [Instr('cmpq', [r, l]),
+                        JumpIf(self.select_op(op), thn),
+                        Jump(els)]
 
-            case Assign([lhs], Call(Name('input_int'), [])):
-                new_lhs = self.select_arg(lhs)
-                return [Callq('read_int', 0),
-                        Instr('movq', [Reg('rax'), new_lhs])]
-
-            case Assign([lhs], Call(Name('print'), [operand])):
-                return [Instr('movq', [self.select_arg(operand), Reg('rdi')]),
-                        Callq('print_int', 1)]
+            case Return(value):
+                ins = self.select_stmt(Assign([Reg('rax')], value))
+                return ins + [Jump('conclusion')]
 
             case _:
                 raise Exception('error in select_stmt, unknown: ' + repr(s))
