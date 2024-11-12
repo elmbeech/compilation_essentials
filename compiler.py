@@ -218,6 +218,7 @@ class Compiler:
         new_memory = [Assign([Name(s_alloc)], Allocate(i_word, type_tup))]
         # initialize memory
         new_init = [Assign([Subscript(Name(s_alloc), Constant(n), Store())], var.targets[0]) for n, var in enumerate(new_var)]
+        #new_init = [Assign([Subscript(Name(s_alloc), Constant(n), Store())], Name(var.targets[0].id)) for n, var in enumerate(new_var)]
         # output
         new_begin = Begin(new_var + new_garbage + new_memory + new_init, Name(s_alloc))
         return new_begin
@@ -279,27 +280,27 @@ class Compiler:
                 raise Exception('error ealloc_exp, unhandled: ' + repr(e))
 
 
-    def ealloc_stmt(self, s: stmt) -> List[stmt]:
+    def ealloc_stmt(self, s: stmt): #-> List[stmt]:
         match s:
             case Assign([var], exp):
                 #new_var = self.ealloc_exp(var)  # bue: maybe not needed since atomic?
                 new_exp = self.ealloc_exp(exp)
-                return [Assign([var], new_exp)]
+                return Assign([var], new_exp)
 
             case Expr(exp):
                 new_exp = self.ealloc_exp(exp)
-                return [Expr(new_exp)]
+                return Expr(new_exp)
 
             case If(test, body, orelse):
                 new_test = self.ealloc_exp(test)
                 new_body = [self.ealloc_stmt(stm) for stm in body]
                 new_orelse = [self.ealloc_stmt(stm) for stm in orelse]
-                return [If(new_test, new_body, new_orelse)]
+                return If(new_test, new_body, new_orelse)
 
             case While(exp, stmts, []):
                 new_exp = self.ealloc_exp(exp)
                 new_stmts = [self.ealloc_stmt(stm) for stm in stmts]
-                return [While(new_exp, new_stmts, [])]
+                return While(new_exp, new_stmts, [])
 
             case _:
                 raise Exception('error ealloc_stmt, unhandled: ' + repr(s))
@@ -314,7 +315,7 @@ class Compiler:
                 l_stm = []
                 for stm in body:
                     abc = self.ealloc_stmt(stm)
-                    l_stm.extend(abc)
+                    l_stm.append(abc)
                 return Module(l_stm)
 
             case _:
@@ -331,25 +332,28 @@ class Compiler:
     def rco_exp(self, e: expr, need_atomic: bool) -> tuple[expr,Temporaries]:
         match e:
             case Allocate(i_int, t_type):
-                (new_i, i_tmp) = self.rco_exp(i_int, False)
-                (new_t, t_tmp) = self.rco_exp(t_type, False)
-                if need_atomic:
-                    tmp = Name(generate_name('tmp'))
-                    alloc = Allocate(new_i, new_ti)
-                    return tmp, i_tmp + t_tmp + [(tmp, alloc)]
-                else:
-                    return Allocate(new_i, new_tmp), i_tmp + t_tmp
+                #(new_t, t_tmp) = self.rco_exp(t_type, False)
+                #if need_atomic:
+                #    tmp = Name(generate_name('tmp'))
+                #    alloc = Allocate(i_int, new_t)
+                #    return tmp, t_tmp + [(tmp, alloc)]
+                #else:
+                #    return Allocate(new_i, new_tmp), i_tmp + t_tmp
+                return e, []
 
-            case Begin(stmts,exp):
-                new_exp,tmp_new = self.rco_exp(exp, False)
+            case Begin(stmts, exp):
+                new_stmts = [self.rco_stmt(stm) for stm in stmts]
+                #new_exp,tmp_new = self.rco_exp(stmts, False)
+                new_exp, tmp_new = self.rco_exp(exp, False)
                 if need_atomic:
                     tmp = Name(generate_name('tmp'))
-                    beg = Begin(stmts, new_exp)
+                    beg = Begin(new_stmts, new_exp)
                     return tmp, tmp_new + [(tmp, beg)]
                 else:
-                    return Begin(stmts, new_exp), tmp_new
+                    return Begin(new_stmts, new_exp), tmp_new
 
             case BinOp(left, op, right):
+                print("HELLLO BIN OP")
                 (l, bs1) = self.rco_exp(left, True)
                 (r, bs2) = self.rco_exp(right, True)
                 if need_atomic:
@@ -378,6 +382,7 @@ class Compiler:
                     return Collect(new_exp), tmp_new
 
             case Compare(left, [op], [right]):
+                print("HELLO COMPARE")
                 (l, bs1) = self.rco_exp(left, True)
                 (r, bs2) = self.rco_exp(right, True)
                 if need_atomic:
@@ -394,6 +399,12 @@ class Compiler:
                     return e, []
 
             case GlobalValue(value):
+                print("HELLO GLOBAL VAUE")
+                #(new_value, new_tmp) = self.rco_exp(value, True)
+                #if need_atomic:
+                #    tmp = Name(generate_name('tmp'))
+                #    return new_tmp, [(new_tmp, GlobalValue(value))]
+                #else:
                 return e, []
 
             case IfExp(test, body, orelse):
@@ -439,9 +450,19 @@ class Compiler:
 
     def rco_stmt(self, s: stmt) -> List[stmt]:
         match s:
+            case Assign([Subscript(atm1, atm2, Store())], rhs):
+                print("ASSIGN SUBS")
+                #new_atm1, new_tmp1 = self.rco_exp(atm1, True)
+                #new_atm2, new_tmp2 = self.rco_exp(atm2, True)
+                #return [Assign([Subscript(new_atm1,new_atm2,Store())], rhs)]
+                return s
+
             case Assign(targets, value):
                 new_value, bs = self.rco_exp(value, False)
                 return [Assign([lhs], rhs) for (lhs, rhs) in bs] + [Assign(targets, new_value)]
+
+            case Collect(integer):
+                return [Collect(integer)]
 
             case Expr(value):
                 new_value, bs = self.rco_exp(value, False)
