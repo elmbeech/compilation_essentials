@@ -78,6 +78,8 @@ caller_save: Set[str] = {'rax', 'rcx', 'rdx', 'rsi', 'rdi', 'r8', 'r9', 'r10', '
 callee_save: Set[str] = {'rsp', 'rbp', 'rbx', 'r12', 'r13', 'r14', 'r15'}
 reserved_registers: Set[str] = {'rax', 'r11', 'r15', 'rsp', 'rbp', '__flag'}
 general_registers: List[str] = ['rcx', 'rdx', 'rsi', 'rdi', 'r8', 'r9', 'r10', 'rbx', 'r12', 'r13', 'r14']
+odd_registers: List[str] = ['r9', 'r11', 'r13']
+even_registers: List[str] = ['r8', 'r10', 'r12', 'r14']
 registers_for_alloc: List[str] = general_registers
 # registers_for_alloc = ['rcx','rbx']
 # registers_for_alloc = ['rdi','rcx','rbx']
@@ -329,20 +331,11 @@ class Compiler:
                 return e, []
 
             case Begin(stmts, exp):
-                print("HELLLO BEGIN")
                 new_stmts = [self.rco_stmt(stm) for stm in stmts]
                 new_exp, tmp_new = self.rco_exp(exp, False)
-                return Begin(new_stmts, new_exp), tmp_new
-
-                #new_exp, tmp_new = self.rco_exp(exp, True)
-                #if need_atomic:
-                #    tmp = Name(generate_name('tmp'))
-                #    bgn = Begin(new_stmts, new_exp)
-                #    return tmp, tmp_new + [(tmp, bgn)]
-                #else:
+                return Begin(sum(new_stmts, []), new_exp), tmp_new
 
             case BinOp(left, op, right):
-                print("HELLLO BIN OP")
                 (l, bs1) = self.rco_exp(left, True)
                 (r, bs2) = self.rco_exp(right, True)
                 if need_atomic:
@@ -362,7 +355,6 @@ class Compiler:
                     return Call(new_func, new_args, []), bs1 + sum(bss2, [])
 
             case Compare(left, [op], [right]):
-                print("HELLO COMPARE")
                 (l, bs1) = self.rco_exp(left, True)
                 (r, bs2) = self.rco_exp(right, True)
                 if need_atomic:
@@ -379,7 +371,6 @@ class Compiler:
                     return e, []
 
             case GlobalValue(variable):
-                print("HELLO GLOBAL VAUE")
                 return e, []
 
             case IfExp(test, body, orelse):
@@ -398,7 +389,6 @@ class Compiler:
                 return e, []
 
             case Subscript(atm1, atm2, Load()):
-                print("HELLO SUBSCRIPT LOAD")
                 (new_atm1, tmp1) = self.rco_exp(atm1, True)
                 (new_atm2, tmp2) = self.rco_exp(atm2, True)
                 if need_atomic:
@@ -409,7 +399,6 @@ class Compiler:
                     return Subscript(new_atm1, new_atm2, Load()), tmp1 + tmp2
 
             case Subscript(atm1, atm2, Store()):
-                print("HELLO SUBSCRIPT STORE")
                 (new_atm1, tmp1) = self.rco_exp(atm1, True)
                 (new_atm2, tmp2) = self.rco_exp(atm2, True)
                 if need_atomic:
@@ -437,13 +426,11 @@ class Compiler:
 
     def rco_stmt(self, s: stmt) -> List[stmt]:
         match s:
-            #case Assign([Subscript(atm1, atm2, Store())], rhs):
-            case Assign([subscript], rhs):
-                print("HELLO ASSIGN SUBS")
-                new_subs, tmp_subs = self.rco_exp(subscript, True)
+            case Assign([Subscript(atm1, atm2, store), rhs]):
+                new_atm1, tmp_atm1 = self.rco_exp(atm1, True)
+                new_atm2, tmp_atm2 = self.rco_exp(atm2, True)
                 new_rhs, tmp_rhs = self.rco_exp(rhs, True)
-                # bue 20241111: what to do with tmp_subs and tmp_rhs?
-                return [Assign([new_subs], new_rhs)]
+                return [Assign([Subscript(new_atm1, new_atm2, store)], new_rhs)]
 
             case Assign(targets, value):
                 new_value, bs = self.rco_exp(value, False)
@@ -518,7 +505,7 @@ class Compiler:
             case Begin(body, result):
                 ss = self.explicate_effect(result, cont, basic_blocks)
                 for s in reversed(body):
-                  ss = self.explicate_stmt(s, ss, basic_blocks)
+                    ss = self.explicate_stmt(s, ss, basic_blocks)
                 return ss
 
             case Call(func, args):
@@ -602,8 +589,8 @@ class Compiler:
             case Assign([lhs], rhs):
                 return self.explicate_assign(rhs, lhs, cont, basic_blocks)
 
-            case Collect(am):
-                return [Collect(am)] + cont
+            case Collect(integer):
+                return [Collect(integer)] + cont
 
             case Expr(value):
                 return self.explicate_effect(value, cont, basic_blocks)
@@ -649,55 +636,6 @@ class Compiler:
     # Select Instructions
     ############################################################################
 
-# case Assign([lhs], Allocate(length, TupleType(ts))):
-#pointer_mask | length | forwarding
-#length_tag = length << 1  # bit shift
-#[0000000]
-
-#ptr_tag = 0
-#i = 7
-#for t in ts:
-#    ptr_tag |= bool2int(drlf.is_root_type(t)) << i
-#    i += 1
-
-#case Collect(size):
-#    return[INst(''
-#
-#case Assign([lhs], Call(Name('len'), [tup]
-
-
-    def select_arg(self, a: expr) -> arg:
-        match a:
-            case BinOp(l, Add(), r):
-                return BinOp(self.select_arg(l), Add(), self.select_arg(r))
-
-            case BinOp(l, Sub(), r):
-                return BinOp(self.select_arg(l), Sub(), self.select_arg(r))
-
-            case Constant(True):
-                return Immediate(1)
-
-            case Constant(False):
-                return Immediate(0)
-
-            case Constant(value):
-                return Immediate(value)
-
-            case GlobalValue(value):
-                return Global(value)
-
-            case Name(value):
-                return Variable(value)
-
-            case Reg(value):  # cause how we handle Return
-                return Reg(value)
-
-            case Subscript(atm1, atm2, Store()):
-                return self.select_arg(atm1)
-
-            case _:
-                raise Exception('select_arg unhandled: ' + repr(a))
-
     def select_op(self, op: operator) -> str:
         match op:
             case Sub():
@@ -705,6 +643,8 @@ class Compiler:
             case And():
                 return 'andq'
             case Eq():
+                return 'e'
+            case Is():
                 return 'e'
             case NotEq():
                 return 'ne'
@@ -725,37 +665,84 @@ class Compiler:
             case _:
                 raise Exception('select_op unhandled: ' + repr(op))
 
+    def select_exp(self, a: expr) -> arg:
+        match a:
+            case BinOp(l, Add(), r):
+                return BinOp(self.select_exp(l), Add(), self.select_exp(r))
+
+            case BinOp(l, Sub(), r):
+                return BinOp(self.select_exp(l), Sub(), self.select_exp(r))
+
+            case Constant(True):
+                return Immediate(1)
+
+            case Constant(False):
+                return Immediate(0)
+
+            case Constant(value):
+                return Immediate(value)
+
+            case GlobalValue(value):
+                return Global(value)
+
+            case Name(value):
+                return Variable(value)
+
+            case Reg(value):  # cause how we handle Return
+                return Reg(value)
+
+            case Subscript(atm1, atm2, Store()):
+                return self.select_exp(atm1)
+
+            case _:
+                raise Exception('select_exp unhandled: ' + repr(a))
+
+
     def select_stmt(self, s: stmt) -> List[instr]:
-        pointer_tag = 0
+        ptr_tag = 0
         match s:
-            case Assign([lhs], Allocate(leng, TupleType(ty))):
-                new_lhs = self.select_arg(lhs)
-                new_len = 8 * (leng + 1)
+
+#ptr_tag = 0
+#i = 7
+#for t in ts:
+#    ptr_tag |= bool2int(drlf.is_root_type(t)) << i
+#    i += 1
+
+
+# case Assign([lhs], Allocate(length, TupleType(ts))):
+#pointer_mask | length | forwarding
+#length_tag = length << 1  # bit shift
+#[0000000]
+
+            case Assign([lhs], Allocate(length, TupleType(ty))):
+                print("BUX!!!:", Allocate(length, TupleType(ty))._fields)
+                new_lhs = self.select_exp(lhs)
+                new_len = 8 * (length + 1)
                 #print('repr: ',[Instr('movq',[Global('free_ptr'),Reg('r11')]),Instr('addq',[new_len,Global('free_ptr')]),Instr('movq',[Immediate(pointer_tag),Reg('rsi')])])
                 return [
                     Instr('movq', [Global('free_ptr'), Reg('r11')]),
                     Instr('addq', [Immediate(new_len), Global('free_ptr')]),
-                    Instr('movq', [Immediate(pointer_tag), Reg('rsi')])
+                    Instr('movq', [Immediate(ptr_tag), Reg('rsi')])
                 ]
 
             case Assign([lhs], BinOp(left, Add(), right)) if left == lhs:
-                new_lhs = self.select_arg(lhs)
-                r = self.select_arg(right)
+                new_lhs = self.select_exp(lhs)
+                r = self.select_exp(right)
                 return [Instr('addq', [r, new_lhs])]
 
             case Assign([lhs], BinOp(left, Add(), right)) if right == lhs:
-                new_lhs = self.select_arg(lhs)
-                l = self.select_arg(left)
+                new_lhs = self.select_exp(lhs)
+                l = self.select_exp(left)
                 return [Instr('addq', [l, new_lhs])]
 
             case Assign([lhs], BinOp(left, Sub(), right)) if left == lhs:
-                new_lhs = self.select_arg(lhs)
-                r = self.select_arg(right)
+                new_lhs = self.select_exp(lhs)
+                r = self.select_exp(right)
                 return [Instr('subq', [r, new_lhs])]
 
             case Assign([lhs], BinOp(left, Sub(), right)) if right == lhs:
-                new_lhs = self.select_arg(lhs)
-                l = self.select_arg(left)
+                new_lhs = self.select_exp(lhs)
+                l = self.select_exp(left)
                 # why not use subq?
                 return [
                     Instr('negq', [new_lhs]),
@@ -763,75 +750,83 @@ class Compiler:
                 ]
 
             case Assign([lhs], BinOp(left, op, right)):
-                new_lhs = self.select_arg(lhs)
-                l = self.select_arg(left)
-                r = self.select_arg(right)
+                new_lhs = self.select_exp(lhs)
+                l = self.select_exp(left)
+                r = self.select_exp(right)
                 return [
                     Instr('movq', [l, new_lhs]),
                     Instr(self.select_op(op), [r, new_lhs])
                 ]
 
             case Assign([lhs], Call(Name('input_int'), [])):
-                new_lhs = self.select_arg(lhs)
+                new_lhs = self.select_exp(lhs)
                 return [
                     Callq('read_int', 0),
                     Instr('movq', [Reg('rax'), new_lhs])
                 ]
 
+#case Assign([lhs], Call(Name('len'), [tup]
+
             case Assign([lhs], Call(Name('print'), [operand])):
                 return [
-                    Instr('movq', [self.select_arg(operand), Reg('rdi')]),
+                    Instr('movq', [self.select_exp(operand), Reg('rdi')]),
                     Callq('print_int', 1)
                 ]
 
             case Assign([lhs], Compare(left, [op], [right])):
-                new_lhs = self.select_arg(lhs)
-                l = self.select_arg(left)
-                r = self.select_arg(right)
+                new_lhs = self.select_exp(lhs)
+                l = self.select_exp(left)
+                r = self.select_exp(right)
                 # in cmpq, the left and right get swapped. -Jeremy
                 if isinstance(r, Immediate):
-                    comparison = [Instr('movq', [l, Reg('rax')]),
-                                  Instr('cmpq', [r, Reg('rax')])]
+                    comparison = [
+                        Instr('movq', [l, Reg('rax')]),
+                        Instr('cmpq', [r, Reg('rax')])
+                    ]
                 else:
                     comparison = [Instr('cmpq', [r, l])]
-                return comparison + \
-                       [Instr('set' + self.select_op(op), [ByteReg('al')]),
-                        Instr('movzbq', [ByteReg('al'), new_lhs])]
+                return comparison + [
+                    Instr('set' + self.select_op(op), [ByteReg('al')]),
+                    Instr('movzbq', [ByteReg('al'), new_lhs])
+                ]
 
             case Assign([lhs], Constant(value)):
-                new_lhs = self.select_arg(lhs)
-                rhs = self.select_arg(Constant(value))
+                new_lhs = self.select_exp(lhs)
+                rhs = self.select_exp(Constant(value))
                 return [Instr('movq', [rhs, new_lhs])]
 
             case Assign([lhs], Name(value)):
-                new_lhs = self.select_arg(lhs)
+                print("BUE!!!:", Name(value)._fields)
+                print("BUE!!!:", Name(value).id)
+                new_lhs = self.select_exp(lhs)
                 if Name(value) != lhs:
                     return [Instr('movq', [Variable(value), new_lhs])]
                 else:
                     return []
 
             case Assign([lhs], Subscript(atm1, atm2, Load())):
-                new_lhs = self.select_arg(lhs)
-                new_atm1 = self.select_arg(atm1)
-                new_atm2 = self.select_arg(atm2)
+                tup_n = 8 * (int(atm2.value + 1))
+                new_lhs = self.select_exp(lhs)
+                new_atm1 = self.select_exp(atm1)
+                #new_atm2 = self.select_exp(atm2)
                 return [
                     Instr('movq', [new_atm1, Reg('r11')]),
-                    Instr('movq', [Immediate(8), Reg('r11')])
+                    Instr('movq', [Deref('r11', tup_n), new_lhs])
                 ]
 
             case Assign([Subscript(atm1, atm2, Store())], atm3):
-                new_atm3 = self.select_arg(atm3)
-                new_atm1 = self.select_arg(atm1)
-                new_atm2 = self.select-arg(atm2)
+                tup_n = 8 * (int(atm2.value + 1))
+                new_atm1 = self.select_exp(atm1)
+                #new_atm2 = self.select_exp(atm2)
+                new_atm3 = self.select_exp(atm3)
                 return [
                     Instr('movq', [new_atm1, Reg('r11')]),
-                    Instr('movq', [new_atm3, Immediate(8)])
+                    Instr('movq', [new_atm3, Deref('r11', tup_n)])
                 ]
 
             case Assign([lhs], UnaryOp(Not(), operand)):
-                new_lhs = self.select_arg(lhs)
-                new_operand = self.select_arg(operand)
-
+                new_lhs = self.select_exp(lhs)
+                new_operand = self.select_exp(operand)
                 return ([Instr('movq', [new_operand, new_lhs])]
                         if new_lhs != new_operand else []) \
                     + [Instr('xorq', [Immediate(1), new_lhs])]
@@ -843,13 +838,13 @@ class Compiler:
                 #return l_inst
 
             case Assign([lhs], UnaryOp(USub(), Constant(i))):
-                new_lhs = self.select_arg(lhs)
+                new_lhs = self.select_exp(lhs)
                 # not just an optimization; needed to handle min-int
                 return [Instr('movq', [Immediate(neg64(i)), new_lhs])]
 
             case Assign([lhs], UnaryOp(op, operand)):
-                new_lhs = self.select_arg(lhs)
-                rand = self.select_arg(operand)
+                new_lhs = self.select_exp(lhs)
+                rand = self.select_exp(operand)
                 return [
                     Instr('movq', [rand, new_lhs]),
                     Instr(self.select_op(op), [new_lhs])
@@ -858,30 +853,34 @@ class Compiler:
             case Collect(integer):
                 return [
                     Instr('movq', [Reg('r15'), Reg('rdi')]),
-                    Instr('movq', [Immediate(integer), Reg('rsi')]), Callq('collect',integer)
+                    Instr('movq', [Immediate(integer), Reg('rsi')]), Callq('collect', integer)
                 ]
 
             case Expr(Call(Name('input_int'), [])):
                 return [Callq('read_int', 0)]
 
             case Expr(Call(Name('print'), [operand])):
-                return [Instr('movq', [self.select_arg(operand), Reg('rdi')]),
-                        Callq('print_int', 1)]
+                return [
+                    Instr('movq', [self.select_exp(operand), Reg('rdi')]),
+                    Callq('print_int', 1)
+                ]
 
             case Expr(value):
                 return []
 
-            case Goto(label):
+            case Goto(label):  # tail
                 return [Jump(label)]
 
-            case If(Compare(left, [op], [right]), [Goto(thn)], [Goto(els)]):
-                l = self.select_arg(left)
-                r = self.select_arg(right)
-                return [Instr('cmpq', [r, l]),
-                        JumpIf(self.select_op(op), thn),
-                        Jump(els)]
+            case If(Compare(left, [op], [right]), [Goto(thn)], [Goto(els)]):  # tail
+                l = self.select_exp(left)
+                r = self.select_exp(right)
+                return [
+                    Instr('cmpq', [r, l]),
+                    JumpIf(self.select_op(op), thn),
+                    Jump(els)
+                ]
 
-            case Return(value):
+            case Return(value):  # tail
                 ins = self.select_stmt(Assign([Reg('rax')], value))
                 return ins + [Jump('conclusion')]
 
@@ -901,7 +900,9 @@ class Compiler:
                 blocks = {}
                 for (l, ss) in body.items():
                     blocks[l] = sum([self.select_stmt(s) for s in ss], [])
-                return X86Program(blocks)
+                x = X86Program(blocks)
+                x.var_types = p.var_types
+                return x
 
 
     ###########################################################################
@@ -919,6 +920,10 @@ class Compiler:
                 return {Reg(reg)}  # problem for write?
             case Immediate(value):
                 return set()
+            case Global(label):
+                print("HELLO GLOBAL")
+                return {}
+            
             case _:
                 raise Exception('error in vars_arg, unhandled: ' + repr(a))
 
@@ -1151,12 +1156,13 @@ class Compiler:
 
     def build_interference_blocks(self,
             blocks,
-            live_after: Dict[instr, Set[location]]
+            live_after: Dict[instr, Set[location]],
+            var_types: Dict
         ) -> UndirectedAdjList:
         graph = UndirectedAdjList()
         for (l, ss) in blocks.items():
             for i in ss:
-                self.interfere_instr(i, graph, live_after)
+                self.interfere_instr(i, graph, live_after, var_types)
         return graph
 
 
@@ -1164,31 +1170,41 @@ class Compiler:
                            live_after: Dict[instr, Set[location]]) -> UndirectedAdjList:
         match p:
             case X86Program(blocks):
-                return self.build_interference_blocks(blocks, live_after)
+                return self.build_interference_blocks(blocks, live_after, p.var_types)
 
 
     def interfere_instr(self, i: instr, graph,
-                        live_after: Dict[instr, Set[location]]):  # graph: UndirectedAdjList
+                        live_after: Dict[instr, Set[location]],
+                        var_types: Dict):  # graph: UndirectedAdjList
         match i:
             case Instr('movzbq', [s, t]):
                 for v in live_after[i]:
                     for d in self.write_vars(i):
                         if v != d and s != v:
                             graph.add_edge(d, v)
+                        self.type_edge(d, var_types, graph)
+
             case Instr('movq', [s, t]):
                 for v in live_after[i]:
                     for d in self.write_vars(i):
                         if v != d and s != v:
                             graph.add_edge(d, v)
+                        self.type_edge(d, var_types, graph)
+
             case _:
                 for v in live_after[i]:
                     for d in self.write_vars(i):
                         if v != d:
                             graph.add_edge(d, v)
+                        self.type_edge(d, var_types, graph)
 
-     # if it is a tuple we through in a bunch of ection t
-     # to not get stup on it
-
+    def type_edge(self, var, var_types, graph):
+        try:
+            if type(var_types[var]) == TupleType:
+                for node in callee_saved:
+                    graph.add_edge(var, node)
+        except KeyError:
+            pass
 
 
     ############################################################################
@@ -1221,6 +1237,8 @@ class Compiler:
                 return set()
             case Deref(reg, offset):
                 return set()
+            case Global(name):
+                return set()
             case _:
                 raise Exception('error in collect_locals_arg, unknown: ' + repr(a))
 
@@ -1243,6 +1261,8 @@ class Compiler:
                 return a
             case Deref(reg, offset):
                 return Deref(reg, offset)
+            case Global(name):
+                return a
             case _:
                 raise Exception('error in assign_homes_arg, unknown: ' + repr(a))
 
@@ -1277,6 +1297,8 @@ class Compiler:
     #            return p
 
     def assign_homes(self, pseudo_x86: X86Program) -> X86Program:
+        print("Hallo3:", pseudo_x86.var_types)
+        print([type(ty) == TupleType for var, ty in pseudo_x86.var_types.items()])
         live_after = self.uncover_live(pseudo_x86)
         graph = self.build_interference(pseudo_x86, live_after)
         #trace(graph.show().source)
@@ -1292,6 +1314,10 @@ class Compiler:
 # will be reduced
 # separate color for regular stack and root stack
 # by even or odd
+#odd_registers
+#: List[str] = ['r9', 'r11', 'r13']  # root
+#even_registers 
+#: List[str] = ['r8', 'r10', 'r12', 'r14']  # regular
 # the one has an offset
 # vector
 # integer
@@ -1329,6 +1355,7 @@ class Compiler:
                 if u.id not in registers: # use match on u instead?
                     unavail_colors[u].add(c)
                     Q.increase_key(u)  # log(n)
+        print('colors ', color)
         return color, spills
 
     def identify_home(self, c: int, first_location: int) -> arg:
@@ -1377,6 +1404,7 @@ class Compiler:
     def alloc_reg_blocks(self, blocks, graph: UndirectedAdjList) -> X86Program:
         variables = set().union(*[self.collect_locals_instrs(ss) for (l, ss) in blocks.items()])
         (color, spills) = self.color_graph(graph, variables)
+
         used_callee = self.used_callee_reg(variables, color)
         num_callee = len(used_callee)
         home = {x: self.identify_home(color[x], 8 + 8 * num_callee) for x in variables}
