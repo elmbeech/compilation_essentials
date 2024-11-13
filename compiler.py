@@ -715,7 +715,6 @@ class Compiler:
 #[0000000]
 
             case Assign([lhs], Allocate(length, TupleType(ty))):
-                print("BUX!!!:", Allocate(length, TupleType(ty))._fields)
                 new_lhs = self.select_exp(lhs)
                 new_len = 8 * (length + 1)
                 #print('repr: ',[Instr('movq',[Global('free_ptr'),Reg('r11')]),Instr('addq',[new_len,Global('free_ptr')]),Instr('movq',[Immediate(pointer_tag),Reg('rsi')])])
@@ -796,8 +795,6 @@ class Compiler:
                 return [Instr('movq', [rhs, new_lhs])]
 
             case Assign([lhs], Name(value)):
-                print("BUE!!!:", Name(value)._fields)
-                print("BUE!!!:", Name(value).id)
                 new_lhs = self.select_exp(lhs)
                 if Name(value) != lhs:
                     return [Instr('movq', [Variable(value), new_lhs])]
@@ -921,7 +918,6 @@ class Compiler:
             case Immediate(value):
                 return set()
             case Global(label):
-                print("HELLO GLOBAL")
                 return {}
             
             case _:
@@ -1297,7 +1293,6 @@ class Compiler:
     #            return p
 
     def assign_homes(self, pseudo_x86: X86Program) -> X86Program:
-        print("Hallo3:", pseudo_x86.var_types)
         print([type(ty) == TupleType for var, ty in pseudo_x86.var_types.items()])
         live_after = self.uncover_live(pseudo_x86)
         graph = self.build_interference(pseudo_x86, live_after)
@@ -1355,7 +1350,6 @@ class Compiler:
                 if u.id not in registers: # use match on u instead?
                     unavail_colors[u].add(c)
                     Q.increase_key(u)  # log(n)
-        print('colors ', color)
         return color, spills
 
     def identify_home(self, c: int, first_location: int) -> arg:
