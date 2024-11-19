@@ -54,7 +54,7 @@ typecheck_dict = {
 
     #'explicate_contol': typecheck_Cif,
     #'explicate_contol': typecheck_Cwhile,
-    'explicate_contol': typecheck_Ctup,
+    'explicate_control': typecheck_Ctup,
 
     # x86
     #'select_instructions'

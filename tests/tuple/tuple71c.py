@@ -3,5 +3,4 @@ def f():
     return x
 
 t = f()
-print(t[0t
-]
+print(t[0])

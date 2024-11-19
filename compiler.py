@@ -700,24 +700,16 @@ class Compiler:
 
     def select_stmt(self, s: stmt) -> List[instr]:
         ptr_tag = 0
-        match s:
-
+#print("BUE:", TupleType(ty), ty)
 #ptr_tag = 0
 #i = 7
 #for t in ts:
 #    ptr_tag |= bool2int(drlf.is_root_type(t)) << i
 #    i += 1
-
-
-# case Assign([lhs], Allocate(length, TupleType(ts))):
-#pointer_mask | length | forwarding
-#length_tag = length << 1  # bit shift
-#[0000000]
-
+        match s:
             case Assign([lhs], Allocate(length, TupleType(ty))):
                 new_lhs = self.select_exp(lhs)
                 new_len = 8 * (length + 1)
-                #print('repr: ',[Instr('movq',[Global('free_ptr'),Reg('r11')]),Instr('addq',[new_len,Global('free_ptr')]),Instr('movq',[Immediate(pointer_tag),Reg('rsi')])])
                 return [
                     Instr('movq', [Global('free_ptr'), Reg('r11')]),
                     Instr('addq', [Immediate(new_len), Global('free_ptr')]),
@@ -764,7 +756,17 @@ class Compiler:
                     Instr('movq', [Reg('rax'), new_lhs])
                 ]
 
-#case Assign([lhs], Call(Name('len'), [tup]
+            case Assign([lhs], Call(Name('len'), [iterable])):
+                #print('BUE:', s, iterable, iterable._fields)
+                new_lhs = self.select_exp(lhs)
+                return [
+                    #Instr('movq', [Variable(iterable), Reg('rax')]),
+                    Instr('movq', [iterable, Reg('rax')]),
+                    Instr('movq', [Immediate(126), Reg('rbx')]),  # 64+32+16+8+4+2 = 126 bit mask 1111110
+                    Instr('andq', [Reg('rbx'), Reg('rax')]),
+                    Instr('sarq', [Immediate(1), Reg('rax')]),
+                    Instr('movq', [Reg('rax'), new_lhs]),
+                ]
 
             case Assign([lhs], Call(Name('print'), [operand])):
                 return [
@@ -909,17 +911,16 @@ class Compiler:
         match a:
             case ByteReg(id):
                 return {Reg(byte_to_full_reg[id])}
-            case Variable(id):
-                return {a}
-            case Reg(id):
-                return {a}
             case Deref(reg, offset):  # don't need this case
                 return {Reg(reg)}  # problem for write?
-            case Immediate(value):
-                return set()
             case Global(label):
                 return {}
-            
+            case Immediate(value):
+                return set()
+            case Reg(id):
+                return {a}
+            case Variable(id):
+                return {a}
             case _:
                 raise Exception('error in vars_arg, unhandled: ' + repr(a))
 
