@@ -599,7 +599,7 @@ class Compiler:
             case Subscript(tup, index, Load()):
                 tmp = generate_name('tmp')
                 assn = [Assign([Name(tmp)], cnd)]
-                return assn + self.generic_explicate_pred(Name(tmp), thn, els,
+                return assn + self.generic_explicate_pred(Name(tmp), thn, els, basic_blocks)
 
             case UnaryOp(Not(), operand):
                 return self.explicate_pred(operand, els, thn, basic_blocks)
@@ -1136,61 +1136,49 @@ class Compiler:
     #            return G
 
 
-    #def build_interference_blocks(self, blocks,
-    #                       live_after: Dict[instr, Set[location]]) -> UndirectedAdjList:
-    #    graph = UndirectedAdjList()
-    #    for (l, ss) in blocks.items():
-    #        for i in ss:
-    #            self.interfere_instr(i, graph, live_after)
-    #    return graph
-
-
-    #def build_interference(self, p: X86Program,
-    #                       live_after: Dict[instr, Set[location]]) -> UndirectedAdjList:
-    #    match p:
-    #        case X86Program(blocks):
-    #            return self.build_interference_blocks(blocks, live_after)
-
-
-    #def interfere_instr(self, i: instr, graph,
-    #                    live_after: Dict[instr, Set[location]]):  # graph: UndirectedAdjList
-    #    match i:
-    #        case Instr('movzbq', [s, t]):
-    #            for v in live_after[i]:
-    #                for d in self.write_vars(i):
-    #                    if v != d and s != v:
-    #                        graph.add_edge(d, v)
-    #        case Instr('movq', [s, t]):
-    #            for v in live_after[i]:
-    #                for d in self.write_vars(i):
-    #                    if v != d and s != v:
-    #                        graph.add_edge(d, v)
-    #        case _:
-    #            for v in live_after[i]:
-    #                for d in self.write_vars(i):
-    #                    if v != d:
-    #                        graph.add_edge(d, v)
+    def build_interference_blocks(self, blocks,
+                           live_after: Dict[instr, Set[location]]) -> UndirectedAdjList:
+        graph = UndirectedAdjList()
+        for (l, ss) in blocks.items():
+            for i in ss:
+                self.interfere_instr(i, graph, live_after)
+        return graph
 
 
     def build_interference(self, p: X86Program,
                            live_after: Dict[instr, Set[location]]) -> UndirectedAdjList:
         match p:
-            case X86Program(body):
+            case X86Program(blocks):
                 self.var_types = p.var_types
-                return super().build_interference(p, live_after)
+                return self.build_interference_blocks(blocks, live_after)
 
 
-    def interfere_instr(self, i: instr, graph: UndirectedAdjList,
-                        live_after: Dict[instr, Set[location]]):
+    def interfere_instr(self, i: instr, graph,
+                        live_after: Dict[instr, Set[location]]):  # graph: UndirectedAdjList
         match i:
             case Callq(func, n) if func == 'collect':
                 for v in live_after[i]:
                     if not (v.id in registers) and self.is_root_type(self.var_types[v.id]):
                         for u in callee_save_for_alloc:
                             graph.add_edge(Reg(u), v)
-                super().interfere_instr(i, graph, live_after)
+
+            case Instr('movzbq', [s, t]):
+                for v in live_after[i]:
+                    for d in self.write_vars(i):
+                        if v != d and s != v:
+                            graph.add_edge(d, v)
+
+            case Instr('movq', [s, t]):
+                for v in live_after[i]:
+                    for d in self.write_vars(i):
+                        if v != d and s != v:
+                            graph.add_edge(d, v)
+
             case _:
-                super().interfere_instr(i, graph, live_after)
+                for v in live_after[i]:
+                    for d in self.write_vars(i):
+                        if v != d:
+                            graph.add_edge(d, v)
 
 
     ############################################################################
@@ -1507,14 +1495,11 @@ class Compiler:
             and (c.value > (2 ** 16) or c.value < - (2 ** 16))
 
 
-    #def in_memory(self, a: arg) -> bool:
-    #    return isinstance(a, Deref)
-
     def in_memory(self, a: arg) -> bool:
         if isinstance(a, Global):
             return True
         else:
-            return super().in_memory(a)
+            return isinstance(a, Deref)
 
 
     def patch_instr(self, i: instr) -> List[instr]:
