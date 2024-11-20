@@ -12,6 +12,7 @@ import interp_Ltup, interp_Ctup  # interp_Lvar, interp_Lif, interp_Cif, interp_L
 import type_check_Ltup, type_check_Ctup # type_check_Lvar, type_check_Lif, type_check_Cif, type_check_Lwhile, type_check_Cwhile, type_check_Ltup, type_check_Ctup
 from utils import run_tests, run_one_test, enable_tracing
 from interp_x86.eval_x86 import interp_x86
+from racket_interp_x86 import racket_interp_x86, racket_interp_pseudo_x86
 
 parser = argparse.ArgumentParser()
 parser.add_argument('tpathfile', nargs='?', default='tests/var/zero.py', help='python test file')
@@ -88,9 +89,10 @@ interp_dict = {
 
     'explicate_control': interpCtup,  # bue 20241021: interp_Cwhile.py does not exist
 
-    #'select_instructions': interp_x86,
-    #'assign_homes': interp_x86,
-    #'patch_instructions': interp_x86,
+    # x86
+    #'select_instructions': racket_interp_x86,
+    #'assign_homes': racket_interp_pseudo_x86,
+    #'patch_instructions': racket_interp_x86,
 }
 
 
