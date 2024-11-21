@@ -1749,7 +1749,13 @@ class Tuples(WhileLoops):
 
 
 
-class Compiler(Tuples):
+class Functions(Tuples):
+    # HERE WE GO AGAIN! CODE FOR Lfun goes here.
+    pass
+
+
+
+class Compiler(Functions):
     pass
 
 
