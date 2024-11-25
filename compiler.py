@@ -81,8 +81,8 @@ from x86_ast import *
 
 import typing
 from typing import List, Set, Dict  # Tuple causes troubles!
-Binding = tuple[Name, expr]
-Temporaries = List[Binding]
+Binding = tuple[Name, expr]  # this is the env
+Temporaries = List[Binding]  # this are env entries  (bs: bindings?)
 
 
 # const
@@ -417,7 +417,7 @@ class Var:
 class RegisterAllocator(Var):
 
     ###########################################################################
-    # Uncover Live
+    # Assigne Homes: Uncover Live
     ###########################################################################
 
     def vars_arg(self, a: arg) -> Set[location]:
@@ -493,7 +493,7 @@ class RegisterAllocator(Var):
                 return live_after
 
     ###########################################################################
-    # Build Interference
+    # Assigne Homes: Build Interference
     ###########################################################################
 
     def build_interference(self, p: X86Program,
@@ -520,7 +520,7 @@ class RegisterAllocator(Var):
                             graph.add_edge(d, v)
 
     ###########################################################################
-    # Allocate Registers
+    # Assign Homes: Allocate Registers
     ###########################################################################
 
     def choose_color(self, v, unavail_colors):
@@ -657,25 +657,6 @@ class Conditionals(RegisterAllocator):
     # Shrink
     ############################################################################
 
-    def shrink(self, p: Module) -> Module:
-        match p:
-            case Module(body):
-                return Module([self.shrink_stmt(s) for s in body])
-
-    def shrink_stmt(self, s: stmt) -> stmt:
-        match s:
-            case Assign(targets, value):
-                return Assign([self.shrink_exp(e) for e in targets],
-                              self.shrink_exp(value))
-            case Expr(value):
-                return Expr(self.shrink_exp(value))
-            case If(test, body, orelse):
-                return If(self.shrink_exp(test),
-                          [self.shrink_stmt(s) for s in body],
-                          [self.shrink_stmt(s) for s in orelse])
-            case _:
-                raise Exception('shrink_stmt: unexpected: ' + repr(s))
-
     def shrink_exp(self, e: expr) -> expr:
         match e:
             case Name(id):
@@ -714,6 +695,27 @@ class Conditionals(RegisterAllocator):
                 return Compare(l, [op], [r])
             case _:
                 raise Exception('shrink_exp: ' + repr(e))
+
+    def shrink_stmt(self, s: stmt) -> stmt:
+        match s:
+            case Assign(targets, value):
+                return Assign([self.shrink_exp(e) for e in targets],
+                              self.shrink_exp(value))
+            case Expr(value):
+                return Expr(self.shrink_exp(value))
+            case If(test, body, orelse):
+                return If(self.shrink_exp(test),
+                          [self.shrink_stmt(s) for s in body],
+                          [self.shrink_stmt(s) for s in orelse])
+            case _:
+                raise Exception('shrink_stmt: unexpected: ' + repr(s))
+
+    def shrink(self, p: Module) -> Module:
+        match p:
+            case Module(body):
+                return Module([self.shrink_stmt(s) for s in body])
+
+
 
     ############################################################################
     # Remove Complex Operands
@@ -1748,16 +1750,96 @@ class Tuples(WhileLoops):
                 return X86Program(body)
 
 
-
 class Functions(Tuples):
-    # HERE WE GO AGAIN! CODE FOR Lfun goes here.
-    pass
+
+    ###########################################################################
+    # Shrink
+    ###########################################################################
+
+    def shrink_stmt(self, s):
+        match s:
+            case FunctionDef(var1,var2,var3,var4,var5,var6):
+                print("HELLO FUnctuindef")
+                new_stmts = [self.shrink_stmt(s) for s in var3]
+                func = FunctionDef(var1,var2,new_stmts,var4,var5,var6)
+                return func
+
+            case Return(exp):
+                print ("HELLO retun")
+                return Return(self.shrink_exp(exp))
+
+            case _ :
+                return super().shrink_stmt(s)
+
+    def shrink(self, p: Module) -> Module:
+        match p:
+            case Module(body):
+                # function definition
+                l_func = []
+                for s in body:
+                    match s:
+                        case FunctionDef(var,var2,var3,var4,var5,var6):
+                            l_func.append(self.shrink_stmt(s))
+                        case _:
+                            pass
+                # main
+                l_main = []
+                for s in body:
+                    match s:
+                        case FunctionDef(funcbody):
+                            pass
+                        case _:
+                            l_main.append(s)
+                main = FunctionDef('main', [], l_main, None, VoidType(), Return(Constant(0)))
+                return Module(l_func + [main])
+
+
+    ###########################################################################
+    # Reveal
+    ###########################################################################
+    def reveal_functions(self,p:Module):
+        new_body = []
+        arity = 0
+        match p:
+            case Module(body):
+                for i in body:
+                    match i:
+                        case FunctionDef(var,var2,var3,var4,var5,var6):
+                            print('i: ',repr(i))
+                            arity += len(var2)
+                            new_body += [self.reveal_stmts(i,arity) for exp in var2]
+                            return new_body
+                        case _:
+                            new_body += self.reveal_stmts(i,arity)
+                            return new_body
+                #for i in body:
+                 #   for j in i.body:
+                return Module(new_body)      #      new_body += [self.reveal_stmts(j)]
+                #new_body =
+    def reveal_stmts(self,s:stmt,arity:int):
+        match s:
+            case Expr(Call(Name('print')),[val]):
+                print('hit1')
+                arity = 1
+                return self.reveal_exp(Call(Name('print')),arity)
+            case Expr(Call(Name('input_int')),[val]):
+                arity = 1
+                return self.reveal_exp(Call(Name('input_int')),arity)
+            case Expr(Call(Name(var)),[val]):
+                return self.reveal_exp(Call(Name(var)),0)
+
+    def reveal_exp(self,e:expr,arity: int):
+        match e:
+            case Call(Name(var)):
+                print('hit2')
+                return Call(FunRef(var,arity))
 
 
 
+
+# run
 class Compiler(Functions):
     pass
-
 
 
 # type checking
