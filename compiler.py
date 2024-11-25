@@ -1759,13 +1759,13 @@ class Functions(Tuples):
     def shrink_stmt(self, s):
         match s:
             case FunctionDef(var1,var2,var3,var4,var5,var6):
-                print("HELLO FUnctuindef")
+                print("HELLO Functuiondef")
                 new_stmts = [self.shrink_stmt(s) for s in var3]
                 func = FunctionDef(var1,var2,new_stmts,var4,var5,var6)
                 return func
 
             case Return(exp):
-                print ("HELLO retun")
+                print ("HELLO Functionretun", repr(s))
                 return Return(self.shrink_exp(exp))
 
             case _ :
@@ -1774,9 +1774,11 @@ class Functions(Tuples):
     def shrink(self, p: Module) -> Module:
         match p:
             case Module(body):
+                print("BODY",repr(p))
                 # function definition
                 l_func = []
                 for s in body:
+                    print("STATEMENT", repr(s), "END") 
                     match s:
                         case FunctionDef(var,var2,var3,var4,var5,var6):
                             l_func.append(self.shrink_stmt(s))
@@ -1790,49 +1792,45 @@ class Functions(Tuples):
                             pass
                         case _:
                             l_main.append(s)
+                print ("HELLO main")
                 main = FunctionDef('main', [], l_main, None, VoidType(), Return(Constant(0)))
                 return Module(l_func + [main])
+
+                   
 
 
     ###########################################################################
     # Reveal
     ###########################################################################
-    def reveal_functions(self,p:Module):
-        new_body = []
-        arity = 0
-        match p:
-            case Module(body):
-                for i in body:
-                    match i:
-                        case FunctionDef(var,var2,var3,var4,var5,var6):
-                            print('i: ',repr(i))
-                            arity += len(var2)
-                            new_body += [self.reveal_stmts(i,arity) for exp in var2]
-                            return new_body
-                        case _:
-                            new_body += self.reveal_stmts(i,arity)
-                            return new_body
-                #for i in body:
-                 #   for j in i.body:
-                return Module(new_body)      #      new_body += [self.reveal_stmts(j)]
-                #new_body =
-    def reveal_stmts(self,s:stmt,arity:int):
-        match s:
-            case Expr(Call(Name('print')),[val]):
-                print('hit1')
-                arity = 1
-                return self.reveal_exp(Call(Name('print')),arity)
-            case Expr(Call(Name('input_int')),[val]):
-                arity = 1
-                return self.reveal_exp(Call(Name('input_int')),arity)
-            case Expr(Call(Name(var)),[val]):
-                return self.reveal_exp(Call(Name(var)),0)
+    #def reveal_stmt(self,s:stmt,funcs:Dict):
+             
+    def reveal_functions_stmt(self,s:stmt,funcs:Dict):
+        for e in s:
+                match e:
+                       case Name(id):
+                               if id in funcs.keys():
+                                        return FunRef(id,funcs[id])
+                               else:
+                                        return Name(id)
 
-    def reveal_exp(self,e:expr,arity: int):
-        match e:
-            case Call(Name(var)):
-                print('hit2')
-                return Call(FunRef(var,arity))
+    def reveal_function_def(self,fd,funcs:Dict):
+        new_var3 = []
+        for s in fd:
+                new_var3.append(self.reveal_functions_stmt(s,funcs))
+        return new_var3
+
+    def reveal_functions(self,p:Module) -> Module:
+        funcs = {}
+        match p:
+             case Module(body):
+                for s in body:
+                        match s: 
+                                case FunctionDef(var1,var2,var3,var4,var5,var6):
+                                        funcs.update({var1:len(var2)})
+                                        new_var3 = self.reveal_function_def(var3,funcs)
+                                        return FunctionDef(var1,var2,new_var3,var4,var5,var6)
+                                case _:
+                                        print("ERROR RF")
 
 
 
