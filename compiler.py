@@ -716,21 +716,9 @@ class Conditionals(RegisterAllocator):
                 return Module([self.shrink_stmt(s) for s in body])
 
 
-
     ############################################################################
     # Remove Complex Operands
     ############################################################################
-
-    def rco_stmt(self, s: stmt) -> List[stmt]:
-        match s:
-            case If(test, body, orelse):
-                (test, bs) = self.rco_exp(test, False)
-                sss1 = [self.rco_stmt(s) for s in body]
-                sss2 = [self.rco_stmt(s) for s in orelse]
-                return [Assign([lhs], rhs) for (lhs, rhs) in bs] \
-                       + [If(test, sum(sss1, []), sum(sss2, []))]
-            case _:
-                return super().rco_stmt(s)
 
     def rco_exp(self, e: expr, need_atomic: bool) -> tuple[expr,Temporaries]:
         match e:
@@ -746,6 +734,7 @@ class Conditionals(RegisterAllocator):
                                                     new_orelse))])
                 else:
                     return IfExp(new_test, new_body, new_orelse), bs1
+
             case Compare(left, [op], [right]):
                 (l, bs1) = self.rco_exp(left, True)
                 (r, bs2) = self.rco_exp(right, True)
@@ -754,8 +743,22 @@ class Conditionals(RegisterAllocator):
                     return tmp, bs1 + bs2 + [(tmp, Compare(l, [op], [r]))]
                 else:
                     return Compare(l, [op], [r]), bs1 + bs2
+
             case _:
                 return super().rco_exp(e, need_atomic)
+
+
+    def rco_stmt(self, s: stmt) -> List[stmt]:
+        match s:
+            case If(test, body, orelse):
+                (test, bs) = self.rco_exp(test, False)
+                sss1 = [self.rco_stmt(s) for s in body]
+                sss2 = [self.rco_stmt(s) for s in orelse]
+                return [Assign([lhs], rhs) for (lhs, rhs) in bs] \
+                       + [If(test, sum(sss1, []), sum(sss2, []))]
+            case _:
+                return super().rco_stmt(s)
+
 
     ############################################################################
     # Explicate Control
@@ -764,12 +767,14 @@ class Conditionals(RegisterAllocator):
     def create_block(self, stmts: List[stmt],
                      basic_blocks: Dict[str, List[stmt]]) -> List[stmt]:
         match stmts:
-          case [Goto(l)]:
-            return stmts
-          case _:
-            label = generate_name('block')
-            basic_blocks[label] = stmts
-            return [Goto(label)]
+            case [Goto(l)]:
+                return stmts
+
+            case _:
+                label = generate_name('block')
+                basic_blocks[label] = stmts
+                return [Goto(label)]
+
 
     def explicate_effect(self, e: expr, cont: List[stmt],
                          basic_blocks: Dict[str, List[stmt]]) -> List[stmt]:
@@ -779,6 +784,7 @@ class Conditionals(RegisterAllocator):
                 for s in reversed(body):
                   ss = self.explicate_stmt(s, ss, basic_blocks)
                 return ss
+
             case IfExp(test, body, orelse):
                 goto = self.create_block(cont, basic_blocks)
                 new_body = self.explicate_effect(body, goto, basic_blocks)
@@ -787,8 +793,10 @@ class Conditionals(RegisterAllocator):
                                            basic_blocks)
             case Call(func, args):
                 return [Expr(e)] + cont
+
             case _:  # no effect, remove this expression
                 return cont
+
 
     def explicate_assign(self, e: expr, x: Variable, cont: List[stmt],
                          basic_blocks: Dict[str, List[stmt]]) -> List[stmt]:
@@ -798,6 +806,7 @@ class Conditionals(RegisterAllocator):
               for s in reversed(body):
                   ss = self.explicate_stmt(s, ss, basic_blocks)
               return ss
+
             case IfExp(test, body, orelse):
                 goto = self.create_block(cont, basic_blocks)
                 new_body = self.explicate_assign(body, x, goto, basic_blocks)
@@ -808,6 +817,7 @@ class Conditionals(RegisterAllocator):
             case _:
                 return [Assign([x], e)] + cont
 
+
     def generic_explicate_pred(self, cnd: expr, thn: List[stmt],
                                els: List[stmt],
                                basic_blocks: Dict[str, List[stmt]]) -> List[stmt]:
@@ -815,26 +825,33 @@ class Conditionals(RegisterAllocator):
                    self.create_block(els, basic_blocks),
                    self.create_block(thn, basic_blocks))]
 
+
     def explicate_pred(self, cnd: expr, thn: List[stmt], els: List[stmt],
                        basic_blocks: Dict[str, List[stmt]]) -> List[stmt]:
         match cnd:
             case Name(x):
                 return self.generic_explicate_pred(cnd, thn, els, basic_blocks)
+
             case Compare(left, [op], [right]):
                 goto_thn = self.create_block(thn, basic_blocks)
                 goto_els = self.create_block(els, basic_blocks)
                 return [If(cnd, goto_thn, goto_els)]
+
             case Constant(True):
                 return thn
+
             case Constant(False):
                 return els
+
             case UnaryOp(Not(), operand):
                 return self.explicate_pred(operand, els, thn, basic_blocks)
+
             case Begin(body, result):
               ss = self.explicate_pred(result, thn, els, basic_blocks)
               for s in reversed(body):
                   ss = self.explicate_stmt(s, ss, basic_blocks)
               return ss
+
             case IfExp(test, body, orelse):
                 goto_thn = self.create_block(thn, basic_blocks)
                 goto_els = self.create_block(els, basic_blocks)
@@ -847,13 +864,16 @@ class Conditionals(RegisterAllocator):
             case _:
                 raise Exception('explicate_pred: unexpected ' + repr(cnd))
 
+
     def explicate_stmt(self, s: stmt, cont: List[stmt],
                        basic_blocks: Dict[str, List[stmt]]) -> List[stmt]:
         match s:
             case Assign([lhs], rhs):
                 return self.explicate_assign(rhs, lhs, cont, basic_blocks)
+
             case Expr(value):
                 return self.explicate_effect(value, cont, basic_blocks)
+
             case If(test, body, orelse):
                 goto = self.create_block(cont, basic_blocks)
                 new_body = goto
@@ -867,6 +887,7 @@ class Conditionals(RegisterAllocator):
             case _:
                 raise Exception('explicate_stmt: unexpected ' + repr(s))
 
+
     def explicate_control(self, p: Module) -> CProgram:
         match p:
             case Module(body):
@@ -876,8 +897,10 @@ class Conditionals(RegisterAllocator):
                     new_body = self.explicate_stmt(s, new_body, basic_blocks)
                 basic_blocks['start'] = new_body
                 return CProgram(basic_blocks)
+
             case _:
                 raise Exception('explicate_control: unexpected ' + repr(p))
+
 
     ############################################################################
     # Select Instructions
@@ -1750,89 +1773,152 @@ class Tuples(WhileLoops):
                 return X86Program(body)
 
 
+
 class Functions(Tuples):
 
     ###########################################################################
     # Shrink
     ###########################################################################
 
-    def shrink_stmt(self, s):
+    def shrink_stmt(self, s: stmt) -> stmt:
         match s:
-            case FunctionDef(var1,var2,var3,var4,var5,var6):
-                print("HELLO Functuiondef")
-                new_stmts = [self.shrink_stmt(s) for s in var3]
-                func = FunctionDef(var1,var2,new_stmts,var4,var5,var6)
-                return func
+            case FunctionDef(var, params, stms, none1, dtype, none2):
+                new_stms = [self.shrink_stmt(s) for s in stms]
+                return FunctionDef(var, params, new_stms, none1, dtype, none2)
 
             case Return(exp):
-                print ("HELLO Functionretun", repr(s))
                 return Return(self.shrink_exp(exp))
 
             case _ :
                 return super().shrink_stmt(s)
 
+
     def shrink(self, p: Module) -> Module:
         match p:
             case Module(body):
-                print("BODY",repr(p))
-                # function definition
                 l_func = []
-                for s in body:
-                    print("STATEMENT", repr(s), "END") 
-                    match s:
-                        case FunctionDef(var,var2,var3,var4,var5,var6):
-                            l_func.append(self.shrink_stmt(s))
-                        case _:
-                            pass
-                # main
                 l_main = []
                 for s in body:
                     match s:
-                        case FunctionDef(funcbody):
-                            pass
+                        case FunctionDef(args):
+                            l_func.append(self.shrink_stmt(s))
+
                         case _:
                             l_main.append(s)
-                print ("HELLO main")
-                main = FunctionDef('main', [], l_main, None, VoidType(), Return(Constant(0)))
-                return Module(l_func + [main])
 
-                   
+                # output
+                l_main.append( Return(Constant(0)) )
+                main = FunctionDef('main', [], l_main, None,  IntType(), None)
+                new_module = Module(l_func + [main])
+                return new_module
+
+            case _:
+                raise Exception('Error @ shrink : undefiend case', p)
 
 
     ###########################################################################
     # Reveal
     ###########################################################################
-    #def reveal_stmt(self,s:stmt,funcs:Dict):
-             
-    def reveal_functions_stmt(self,s:stmt,funcs:Dict):
-        for e in s:
-                match e:
-                       case Name(id):
-                               if id in funcs.keys():
-                                        return FunRef(id,funcs[id])
-                               else:
-                                        return Name(id)
 
-    def reveal_function_def(self,fd,funcs:Dict):
-        new_var3 = []
-        for s in fd:
-                new_var3.append(self.reveal_functions_stmt(s,funcs))
-        return new_var3
+    def reveal_functions_exp(self, e: expr, funcs: Dict) -> expr:
+        match e:
+            case Call(lexp, rexps):
+                new_lexp = self.reveal_functions_exp(lexp, funcs)
+                new_rexps = [self.reveal_functions_exp(rexp, funcs) for rexp  in rexps]
+                return Call(new_lexp, new_rexps)
 
-    def reveal_functions(self,p:Module) -> Module:
+            case Compare(lexp, [cmp], [rexp]):
+                new_lexp = self.reveal_functions_exp(lexp, funcs)
+                new_rexp = self.reveal_functions_exp(rexp, funcs)
+                return Compare(new_lexp, [cmp], [new_rexp])
+
+            case Constant(dtype):
+                return e
+
+            case BinOp(lexp, op, rexp):
+                new_lexp = self.reveal_functions_exp(lexp, funcs)
+                new_rexp = self.reveal_functions_exp(rexp, funcs)
+                return BinOp(new_lexp, op, new_rexp)
+
+            case BoolOp(op, [lexp, rexp]):
+                new_lexp = self.reveal_functions_exp(lexp, funcs)
+                new_rexp = self.reveal_functions_exp(rexp, funcs)
+                return BoolOp(op [new_lexp, new_rexp])
+
+            case IfExp(testexp, thenexp, elseexp):
+                new_test = self.reveal_functions_exp(testexp, funcs)
+                new_thenexp = self.reveal_functions_exp(thenexp, funcs)
+                new_elseexp = self.reveal_functions_exp(elseexp, funcs)
+                return IfExp(new_testexp, new_thenexp, new_elseexp)
+
+            # here the magic happens
+            case Name(idef):
+                if id in funcs.keys():
+                    return FunRef(idef, funcs[idef])
+                else:
+                    return Name(idef)
+
+            case Subscript(exp, integer, Load()):
+                 new_exp = self.reveal_functions_exp(exp, funcs)
+                 return Subscript(new_exp, integer, Load())
+
+            case Tuple(exps, Load()):
+                 new_exps = [self.reveal_functions_exp(exp, funcs) for exp in exps]
+                 return Tuple(new_exps, Load())
+
+            case UnaryOP(op, exp):
+                new_exp = self.reveal_functions_exp(exp, funcs)
+                return UnaryOP(op, new_exp)
+
+            case _:
+                return self.reveal_functions_exp(e)
+                #raise Exception('Error @ reveal_functions_stmt : undefiend case', s)
+
+
+    def reveal_functions_stmt(self, s: stmt, funcs: Dict) -> stmt:
+        match s:
+            case Assign([lexp], rexp):
+                new_lexp = self.reveal_functions_exp(lexp, funcs)
+                new_rexp = self.reveal_functions_exp(rexp, funcs)
+                new_assign = Assign([new_lexp], new_rexp)
+                return new_assign
+
+            case Expr(exp):
+                new_exp = self.reveal_functions_exp(exp, funcs)
+                return Expr(new_exp)
+
+            # here the magic happes
+            case FunctionDef(var, params, stms, none1, dtype, none2):
+                funcs.update({var: len(params)})
+                new_stms = [self.reveal_functions_stmt(stm, funcs) for stm in stms]
+                return FunctionDef(var, params, new_stms, none1, dtype, none2)
+
+            case If(testexp, thenstms, elsestms):
+                new_testexp = self.reveal_functions_exp(testexp, funcs)
+                new_thenstms = [self.reveal_functions_stmt(thenstm, funcs) for stm in thenstms]
+                new_elsestms = [self.reveal_functions_stmt(elsestm, funcs) for stm in elsestms]
+                return If(new_testexp, new_thenstms, new_elsestms)
+
+            case Return(exp):
+                new_exp = self.reveal_functions_exp(exp, funcs)
+                return Return(new_exp)
+
+            case While(exp, stms, []):
+                new_exp = self.reveal_functions_exp(exp, funcs)
+                new_stms = [self.reveal_functions_stmt(stm, funcs) for stm in stms]
+
+            case _:
+                raise Exception('Error @ reveal_functions_stmt : undefiend case!', s)
+
+
+    def reveal_functions(self, p: Module) -> Module:
         funcs = {}
         match p:
-             case Module(body):
-                for s in body:
-                        match s: 
-                                case FunctionDef(var1,var2,var3,var4,var5,var6):
-                                        funcs.update({var1:len(var2)})
-                                        new_var3 = self.reveal_function_def(var3,funcs)
-                                        return FunctionDef(var1,var2,new_var3,var4,var5,var6)
-                                case _:
-                                        print("ERROR RF")
+            case Module(body):
+                return Module([self.reveal_functions_stmt(s, funcs) for s in body])
 
-
+            case _:
+                raise Exception('Error @ reveal_functions : undefiend case', p)
 
 
 # run
