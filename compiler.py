@@ -1345,27 +1345,6 @@ class Tuples(WhileLoops):
     # Expose Allocation
     ###########################################################################
 
-    def expose_allocation(self, p: Module) -> Module:
-      match p:
-        case Module(body):
-          return Module([self.expose_alloc_stmt(s) for s in body])
-
-    def expose_alloc_stmt(self, s: stmt) -> stmt:
-        match s:
-            case Assign(targets, value):
-                return Assign(targets, self.expose_alloc_exp(value))
-            case Expr(value):
-                return Expr(self.expose_alloc_exp(value))
-            case If(test, body, orelse):
-                return If(self.expose_alloc_exp(test),
-                          [self.expose_alloc_stmt(s) for s in body],
-                          [self.expose_alloc_stmt(s) for s in orelse])
-            case While(test, body, []):
-                return While(self.expose_alloc_exp(test),
-                             [self.expose_alloc_stmt(s) for s in body], [])
-            case _:
-                raise Exception('expose_alloc_stmt: unexpected ' + repr(s))
-
     def expose_alloc_tuple(self, es, tupleType, allocExp):
         n = len(es)
         size = (n + 1) * 8
@@ -1385,6 +1364,7 @@ class Tuples(WhileLoops):
                      + [Assign([Name(vec)], allocExp)] \
                      + initVec,
                      Name(vec))
+
 
     def expose_alloc_exp(self, e: expr) -> expr:
         match e:
@@ -1426,6 +1406,30 @@ class Tuples(WhileLoops):
                                  Load())
             case _:
                 raise Exception('expose_alloc_exp: unexpected ' + repr(e))
+
+
+    def expose_alloc_stmt(self, s: stmt) -> stmt:
+        match s:
+            case Assign(targets, value):
+                return Assign(targets, self.expose_alloc_exp(value))
+            case Expr(value):
+                return Expr(self.expose_alloc_exp(value))
+            case If(test, body, orelse):
+                return If(self.expose_alloc_exp(test),
+                          [self.expose_alloc_stmt(s) for s in body],
+                          [self.expose_alloc_stmt(s) for s in orelse])
+            case While(test, body, []):
+                return While(self.expose_alloc_exp(test),
+                             [self.expose_alloc_stmt(s) for s in body], [])
+            case _:
+                raise Exception('expose_alloc_stmt: unexpected ' + repr(s))
+
+
+    def expose_allocation(self, p: Module) -> Module:
+      match p:
+        case Module(body):
+          return Module([self.expose_alloc_stmt(s) for s in body])
+
 
     ###########################################################################
     # Remove Complex Operands
@@ -1852,11 +1856,11 @@ class Functions(Tuples):
                 return IfExp(new_testexp, new_thenexp, new_elseexp)
 
             # here the magic happens
-            case Name(idef):
-                if idef in funcs.keys():
-                    return FunRef(idef, funcs[idef])
+            case Name(idf):
+                if idf in funcs.keys():
+                    return FunRef(idf, funcs[idf])
                 else:
-                    return Name(idef)
+                    return Name(idf)
 
             case Subscript(exp, integer, Load()):
                  new_exp = self.reveal_functions_exp(exp, funcs)
@@ -1916,11 +1920,89 @@ class Functions(Tuples):
         match p:
             case Module(body):
                 new_module = Module([self.reveal_functions_stmt(s, funcs) for s in body])
-                #print('REVEAL FUNCTIONS:\n', repr(new_module))
+                #print('REVEAL FUNCTIONS:\n', repr(new_module), funcs)
                 return new_module
 
             case _:
                 raise Exception('Error @ reveal_functions : undefiend case', p)
+
+
+    ###########################################################################
+    # Limit Functions
+    ###########################################################################
+    # BUE 20241127: not yet implemented.
+
+    def limit_functions_stmt(self, s: stmt) -> stmt:
+        match s:
+            case _:
+                return s
+
+    def limit_functions(self, p: Module) -> Module:
+        funcs = {}
+        match p:
+            case Module(body):
+                new_module = Module([self.limit_functions_stmt(s) for s in body])
+                #print('LIMIT FUNCTIONS:\n', repr(new_module))
+                return new_module
+
+            case _:
+                raise Exception('Error @ limit_functions : undefiend case', p)
+
+
+    ############################################################################
+    # Expose Allocation
+    ############################################################################
+
+    def expose_alloc_exp(self, e: expr) -> expr:
+        match e:
+            case FunRef(idf, arity):
+                return e
+
+            case _:
+                return super().expose_alloc_exp(e)
+
+
+    def expose_alloc_stmt(self, s: stmt) -> stmt:
+        match s:
+            case FunctionDef(var, params, stms, none1, dtype, none2):
+                new_stms = [self.expose_alloc_stmt(stm) for stm in stms]
+                return FunctionDef(var, params, new_stms, none1, dtype, none2)
+
+            case Return(exp):
+                new_exp = self.expose_alloc_exp(exp)
+                return Return(new_exp)
+
+            case _:
+                return super().expose_alloc_stmt(s)
+
+
+    ############################################################################
+    # Remove Complex Operands
+    ############################################################################
+
+    def rco_exp(self, e: expr, need_atomic: bool) -> tuple[expr, Temporaries]:
+        match e:
+            case FunRef(idf, arity):
+                if need_atomic:
+                    sys.exit("some shit went wrong!")
+                # complex
+                return e, []
+
+            case _:
+                return super().rco_exp(e, need_atomic)
+
+    def rco_stmt(self, s: stmt) -> List[stmt]:
+        match s:
+            case FunctionDef(var, params, stms, none1, dtype, none2):
+                new_stms = [self.rco_stmt(stm) for stm in stms]
+                return [FunctionDef(var, params, new_stms, none1, dtype, none2)]
+
+            case Return(e):
+                new_exp = self.rco_exp(e, True)  # bue 20241127: atomic?
+                return [Return(new_exp)]
+
+            case _:
+                return super().rco_stmt(s)
 
 
 # run
