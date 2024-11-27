@@ -1853,7 +1853,7 @@ class Functions(Tuples):
 
             # here the magic happens
             case Name(idef):
-                if id in funcs.keys():
+                if idef in funcs.keys():
                     return FunRef(idef, funcs[idef])
                 else:
                     return Name(idef)
@@ -1915,7 +1915,9 @@ class Functions(Tuples):
         funcs = {}
         match p:
             case Module(body):
-                return Module([self.reveal_functions_stmt(s, funcs) for s in body])
+                new_module = Module([self.reveal_functions_stmt(s, funcs) for s in body])
+                #print('REVEAL FUNCTIONS:\n', repr(new_module))
+                return new_module
 
             case _:
                 raise Exception('Error @ reveal_functions : undefiend case', p)
