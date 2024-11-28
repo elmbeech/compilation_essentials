@@ -1979,17 +1979,33 @@ class Functions(Tuples):
     ############################################################################
     # Remove Complex Operands
     ############################################################################
+    '''
+    bue 20241127: old school
+    case Call(func, args):
+        (new_func, bs1) = self.rco_exp(func, True)
+        (new_args, bss2) = unzip([self.rco_exp(arg, True) for arg in args])
+        if need_atomic:
+            tmp = Name(generate_name('tmp'))
+            return (tmp, bs1 + sum(bss2, []) + [(tmp, Call(new_func, new_args, []))])
+        else:
+            return Call(new_func, new_args, []), bs1 + sum(bss2, [])
+    '''
 
     def rco_exp(self, e: expr, need_atomic: bool) -> tuple[expr, Temporaries]:
         match e:
             case FunRef(idf, arity):
-                if need_atomic:
+                if need_atomic: # bue 20241127: because it is complex
+                    tmp = Name(generate_name('fun'))
+                    return tmp, [(tmp, e)]
+                else:
                     sys.exit("some shit went wrong!")
-                # complex
-                return e, []
+
+            #case Call(atm, atms):
+            #        sys.exit("this shit hit!")
 
             case _:
                 return super().rco_exp(e, need_atomic)
+
 
     def rco_stmt(self, s: stmt) -> List[stmt]:
         match s:
@@ -1998,8 +2014,9 @@ class Functions(Tuples):
                 return [FunctionDef(var, params, new_stms, none1, dtype, none2)]
 
             case Return(e):
+                #new_exp = self.rco_exp(e, False)  # bue 20241127: atomic?
                 new_exp = self.rco_exp(e, True)  # bue 20241127: atomic?
-                return [Return(new_exp)]
+                return Return(new_exp)  # bue20241127: strange! this return seems to ne in a list! and the assigne as well!
 
             case _:
                 return super().rco_stmt(s)
