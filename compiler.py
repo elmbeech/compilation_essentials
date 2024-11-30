@@ -1979,17 +1979,6 @@ class Functions(Tuples):
     ############################################################################
     # Remove Complex Operands
     ############################################################################
-    '''
-    bue 20241127: old school
-    case Call(func, args):
-        (new_func, bs1) = self.rco_exp(func, True)
-        (new_args, bss2) = unzip([self.rco_exp(arg, True) for arg in args])
-        if need_atomic:
-            tmp = Name(generate_name('tmp'))
-            return (tmp, bs1 + sum(bss2, []) + [(tmp, Call(new_func, new_args, []))])
-        else:
-            return Call(new_func, new_args, []), bs1 + sum(bss2, [])
-    '''
 
     def rco_exp(self, e: expr, need_atomic: bool) -> tuple[expr, Temporaries]:
         match e:
@@ -1998,10 +1987,17 @@ class Functions(Tuples):
                     tmp = Name(generate_name('fun'))
                     return tmp, [(tmp, e)]
                 else:
-                    sys.exit("some shit went wrong!")
+                    raise Exception('Error: rco_exps FunRef should be complex but lands here atomic.')
 
-            #case Call(atm, atms):
-            #        sys.exit("this shit hit!")
+            case Expr(Call(atm, atms)):
+                sys.exit("this shit hit!")  # bue 20241130: just wanne see when this catches first.
+                (new_func, bs1) = self.rco_exp(atm, True)
+                (new_args, bss2) = unzip([self.rco_exp(arg, True) for arg in atms])
+                if need_atomic:
+                    tmp = Name(generate_name('tmp'))
+                    return (tmp, bs1 + sum(bss2, []) + [(tmp, Call(new_func, new_args, []))])
+                else:
+                    return Call(new_func, new_args, []), bs1 + sum(bss2, [])
 
             case _:
                 return super().rco_exp(e, need_atomic)
@@ -2010,13 +2006,12 @@ class Functions(Tuples):
     def rco_stmt(self, s: stmt) -> List[stmt]:
         match s:
             case FunctionDef(var, params, stms, none1, dtype, none2):
-                new_stms = [self.rco_stmt(stm) for stm in stms]
+                new_stms = sum([self.rco_stmt(stm) for stm in stms], [])
                 return [FunctionDef(var, params, new_stms, none1, dtype, none2)]
 
             case Return(e):
-                #new_exp = self.rco_exp(e, False)  # bue 20241127: atomic?
-                new_exp = self.rco_exp(e, True)  # bue 20241127: atomic?
-                return Return(new_exp)  # bue20241127: strange! this return seems to ne in a list! and the assigne as well!
+                new_exp, tmp = self.rco_exp(e, False)  # bue 20241127: cause it is atomic! the tmp we simply through away.
+                return [Return(new_exp)]
 
             case _:
                 return super().rco_stmt(s)
