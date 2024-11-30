@@ -2017,6 +2017,83 @@ class Functions(Tuples):
                 return super().rco_stmt(s)
 
 
+    ############################################################################
+    # Explicate Control
+    ############################################################################
+
+
+    def explicate_assign(self, e: expr, x: Variable, cont: List[stmt],
+                         basic_blocks: Dict[str, List[stmt]]) -> List[stmt]:
+        # Apply becomes Call?
+        match e:
+            case Call(func, args):
+                pass
+
+            case FunRef(idf, arity):
+                pass
+
+            case _:
+                return super().explicate_assign(e, x, cont, basic_blocks)
+
+
+    def explicate_pred(self, cnd: expr, thn: List[stmt], els: List[stmt],
+                       basic_blocks: Dict[str, List[stmt]]) -> List[stmt]:
+        # Apply becomes Call?
+        # Call can be boolean, FunRef can't be boolean!
+        match cnd:
+            case Call(func, args):  # function might return boolean
+                pass
+
+            case _:
+                return super().explicate_assign(cnd, thn, els, basic_blocks)
+
+
+    def explicate_tail(self, e: expr, basic_blocks: Dict[str, List[stmt]]) -> List[stmt]:
+        # tail call optimization for translation of Return statements
+        match e:
+            case Begin(nop):
+                pass
+
+            case IfExp(nop):
+                pass
+
+            case Call(nop):
+                return TailCall(nop)
+
+            case _:
+                return Return(e)
+
+
+    def explicate_def(self, d: stmt, ) -> stmt:
+        match d:
+            case FunctionDef(var, params, stms, none1, dtype, none2):
+
+                # bue 20241130: note from assignment review lecture.
+                #if isinstance(dtype, VoidType):
+                #    stms = stms
+                #    return None
+
+                basic_blocks = {}
+                new_body = [Return(Constant(0))]
+                for s in reversed(stms):
+                    new_body = self.explicate_stmt(s, new_body, basic_blocks)
+                basic_blocks['start'] = new_body
+                return FunctionDef(var, params, basic_blocks, none1, dtype, none2)
+
+            case _:
+                raise Exception('explicate_def: unexpected ' + repr(d))
+
+
+    def explicate_control(self, p: Module) -> CProgram:
+        match p:
+            case Module(body):
+                defs = [self.explicate_def(s) for s in body]
+                return CProgramDefs(defs)
+
+            case _:
+                raise Exception('explicate_control: unexpected ' + repr(p))
+
+
 # run
 class Compiler(Functions):
     pass
