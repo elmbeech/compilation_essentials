@@ -925,18 +925,22 @@ class Conditionals(RegisterAllocator):
                 return [Instr('cmpq', [r, l]),
                         JumpIf(self.select_op(op), thn),
                         Jump(els)]
+
             case Goto(label):
                 return [Jump(label)]
+
             case Assign([lhs], UnaryOp(Not(), operand)):
                 new_lhs = self.select_arg(lhs)
                 new_operand = self.select_arg(operand)
                 return ([Instr('movq', [new_operand, new_lhs])]
                         if new_lhs != new_operand else []) \
                     + [Instr('xorq', [Immediate(1), new_lhs])]
+
             case Assign([lhs], BinOp(left, Sub(), right)) if left == lhs:
                 new_lhs = self.select_arg(lhs)
                 r = self.select_arg(right)
                 return [Instr('subq', [r, new_lhs])]
+
             case Assign([lhs], Compare(left, [op], [right])):
                 new_lhs = self.select_arg(lhs)
                 l = self.select_arg(left)
@@ -950,9 +954,11 @@ class Conditionals(RegisterAllocator):
                 return comparison + \
                        [Instr('set' + self.select_op(op), [ByteReg('al')]),
                         Instr('movzbq', [ByteReg('al'), new_lhs])]
+
             case Return(value):
                 ins = self.select_stmt(Assign([Reg('rax')], value))
                 return ins + [Jump('conclusion')]
+
             case _:
                 return super().select_stmt(s)
 
@@ -2127,6 +2133,87 @@ class Functions(Tuples):
             case _:
                 raise Exception('explicate_control: unexpected ' + repr(p))
 
+
+    ############################################################################
+    # Select Instructions
+    ############################################################################
+
+    def select_arg(self, a: expr) -> arg:
+        print("SELECT ARG: ",repr(a))
+        match a:
+            case FunRef(label, arity):
+                return Global(label)
+
+            case _:
+                return super().select_arg(a)
+
+
+    def select_stmt(self, s: stmt) -> List[instr]:
+        print("SELECT STMTS: ",repr(s))
+        match s:
+            case Assign([lhs],FunRef(label,arity)):
+                return [Instr('leaq',[Global(label),self.select_arg(lhs)])]
+
+            case Assign([lhs],Call(atm,l_atm)):
+                new_instr = []
+                print("L_ATM: ",l_atm)
+                for (i, atm2) in enumerate(l_atm):
+                    new_instr.append(Instr('movq',[self.select_arg(atm2), Reg(arg_registers[i])]))
+                new_instr.append(IndirectCallq(atm,Immediate(len(l_atm))))
+                new_instr.append(Instr('movq',[Reg('rax'),lhs]))
+
+                return new_instr
+
+            case Return(value):
+                print("THATS ME!")
+                ins = self.select_stmt(Assign([Reg('rax')], value))
+                return ins + [Jump(f'{self.block}_conclusion')]
+
+            case TailCall(atm1,l_atms):
+                return [TailJmp(self.select_arg(atm1),len(l_atms))]
+
+            case _:
+                return super().select_stmt(s)
+
+
+    def select_instructions_def(self, s:stmt):
+        match s:
+            case FunctionDef(var, params, stms, none1, dtype, none2):
+                print("\nFUNC DEF: ", repr(params))
+                self.block = var
+                new_instr = []
+                for (i, atm2) in enumerate(params):
+                     new_instr.append(Instr('movq',[Reg(arg_registers[i]),Variable(atm2[0])]))#atm2[0] is not recursively proccessed but the only value of [0] index would be a var
+
+                new_blocks = {}
+                for (label, l_stm) in stms.items():
+                    if self.block == 'main':
+                        new_blocks[label] = sum([self.select_stmt(stm) for stm in l_stm],[])
+                    else:
+                        new_blocks[label] = new_instr+sum([self.select_stmt(stm) for stm in l_stm],[])
+
+                for i in new_blocks.values():
+                    for j in i:
+                        if j == Jump(label):
+                            print("WHAT NOW?")
+
+                return FunctionDef(self.block, [], new_blocks, none1, dtype, none2)
+            case _:
+                raise Exception('select_instructions_def: unexpected ' + repr(p))
+
+
+    def select_instructions(self, p: CProgramDefs) -> X86Program:
+        match p:
+            case CProgramDefs(body):
+                print("SELECT INSTRUCTIONS:")
+                defs = [self.select_instructions_def(s) for s in body]
+                new_p = X86ProgramDefs(defs)
+                #new_p.var_types = p.var_types
+                print("X86:\n",repr(new_p))
+                return new_p
+
+            case _:
+                raise Exception('select_instructions: unexpected ' + repr(p))
 
 
 # run
