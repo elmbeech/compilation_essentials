@@ -2246,12 +2246,89 @@ class Functions(Tuples):
                 return super().write_vars(i)
 
 
+    def uncover_live_def(self, s: stmt) -> Dict[instr, Set[location]]:
+        print("AH uncover_live_def")
+        match s:
+            case FunctionDef(var, [], blocks, none1, dtype, none2):
+                (live_before, live_after) = self.uncover_live_blocks(blocks)
+                trace("uncover live:")
+                self.trace_live(p, live_before, live_after)
+                return live_after
+
+
+    def uncover_live(self, p: X86ProgramDefs) -> List[Dict[instr, Set[location]]]:
+        print("AH uncover_live")
+        match p:
+            case X86ProgramDefs(body):
+                defs = [self.uncover_live_def(s) for s in body]
+                return defs
+
+
     ###########################################################################
     # Assign Homes: Build Inference Graph
     ###########################################################################
 
     #def
     # add inference ediges between call_live tuple_type variables  and callee saved registers
+
+    #def interfere_instr(self, i: instr, graph,
+    #                    live_after: Dict[instr, Set[location]]):
+    #    match i:
+    #        case Instr('movzbq', [s, t]):
+    #            for v in live_after[i]:
+    #                for d in self.write_vars(i):
+    #                    if v != d and s != v:
+    #                        graph.add_edge(d, v)
+
+    #        case Callq(func, n) if func == 'collect':
+    #            for v in live_after[i]:
+    #                if not (v.id in registers) and self.is_root_type(self.var_types[v.id]):
+    #                    for u in callee_save_for_alloc:
+    #                        graph.add_edge(Reg(u), v)
+    #            self.interfere_instr(i, graph, live_after)
+
+    #        case Instr('movq', [s, t]):
+    #            for v in live_after[i]:
+    #                for d in self.write_vars(i):
+    #                    if v != d and s != v:
+    #                        graph.add_edge(d, v)
+
+    #        case _:
+    #            for v in live_after[i]:
+    #                for d in self.write_vars(i):
+    #                    if v != d:
+    #                        graph.add_edge(d, v)
+
+    #        case _:
+    #           raise Exception("Hmmmm")
+
+    #def build_interference_blocks(self, blocks, live_after: Dict[instr, Set[location]]) -> UndirectedAdjList:
+    #    graph = UndirectedAdjList()
+    #    for (l, ss) in blocks.items():
+    #        for i in ss:
+    #            self.interfere_instr(i, graph, live_after)
+    #    return graph
+
+
+    def build_interference_def(self, s, live_after: Dict[instr, Set[location]]) -> UndirectedAdjList:
+        print("I BUILD INFERENCE DEF")
+        match s:
+            case FunctionDef(var, [], blocks, none1, dtype, none2):
+                #case FunctionDef(var, params, stms, none1, dtype, none2):
+                return self.build_interference_blocks(blocks, live_after)
+
+    def build_interference(self, p: X86ProgramDefs, live_after: Dict[instr, Set[location]]) -> List[UndirectedAdjList]:
+        print("I BUILD INFERENCE")
+        match p:
+            case X86ProgramDefs(body):
+                #self.var_types = p.var_types
+                defs = [self.build_interference_def(s, live_after) for s in body]
+                return defs
+
+            case _:
+                raise Exception('build_interference: unexpected ' + repr(p))
+
+
 
     ###########################################################################
     # Assign Homes: Allocate Registers
