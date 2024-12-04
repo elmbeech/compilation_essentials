@@ -118,6 +118,7 @@ extra_arg_registers = list(set(arg_registers) - set(registers_for_alloc))
 for i, r in enumerate(extra_arg_registers):
     register_color[r] = -i - 6
 
+TailJmp = TailJump
 
 # class and fucntions
 
@@ -1027,7 +1028,6 @@ class Conditionals(RegisterAllocator):
             graph.add_vertex(u)
         for (u, ss) in blocks.items():
             for s in ss:
-                print("BUE!!", u, s)
                 for v in self.adjacent_instr(s):
                     graph.add_edge(u, v)
         return graph
@@ -1107,8 +1107,7 @@ class Conditionals(RegisterAllocator):
     # Allocate Registers
     ############################################################################
 
-    def alloc_reg_blocks(self, blocks,
-                         graph: UndirectedAdjList) -> X86Program:
+    def alloc_reg_blocks(self, blocks, graph: UndirectedAdjList) -> X86Program:
         variables = set().union(*[self.collect_locals_instrs(ss) \
                                   for (l, ss) in blocks.items()])
         (color, spills) = self.color_graph(graph, variables)
@@ -1295,7 +1294,7 @@ class WhileLoops(Conditionals):
                           live_before : Dict[instr, Set[location]],
                           live_after : Dict[instr, Set[location]]) -> Set[location]:
         def live_xfer(label, live_before_succ):
-            if label == f'conclusion':i
+            if label == f'conclusion':
                 return {Reg('rax'), Reg('rsp')}
             else:
                 return self.uncover_live_block(label, blocks[label], live_before_succ, live_before, live_after)
@@ -1646,9 +1645,7 @@ class Tuples(WhileLoops):
             offset = - (first_location + 8 * new_c)
             return Deref('rbp', offset)
 
-    def alloc_reg_blocks(self, blocks,
-                         graph: UndirectedAdjList,
-                         var_types) -> X86Program:
+    def alloc_reg_blocks(self, blocks, graph: UndirectedAdjList, var_types) -> X86Program:
         variables = set().union(*[self.collect_locals_instrs(ss) \
                                   for (l, ss) in blocks.items()])
         self.var_types = var_types
@@ -1676,8 +1673,7 @@ class Tuples(WhileLoops):
                for (l, ss) in blocks.items()}
         return (new_blocks, used_callee, num_callee, stack_spills, root_spills)
 
-    def allocate_registers(self, p: X86Program,
-                           graph: UndirectedAdjList) -> X86Program:
+    def allocate_registers(self, p: X86Program, graph: UndirectedAdjList) -> X86Program:
         match p:
             case X86Program(blocks):
                 (new_blocks, used_callee, num_callee, stack_spills, root_spills) = \
@@ -2159,7 +2155,7 @@ class Functions(Tuples):
                 for (i, atm2) in enumerate(l_atm):
                     new_instr.append(Instr('movq',[self.select_arg(atm2), Reg(arg_registers[i])]))
                 new_instr.append(IndirectCallq(atm,Immediate(len(l_atm))))
-                new_instr.append(Instr('movq',[Reg('rax'),lhs]))
+                new_instr.append(Instr('movq',[Reg('rax'), self.select_arg(lhs)]))
 
                 return new_instr
 
@@ -2178,7 +2174,7 @@ class Functions(Tuples):
     def select_instructions_def(self, s:stmt):
         match s:
             case FunctionDef(var, params, stms, none1, dtype, none2):
-                print("\nFUNC DEF: ", repr(params))
+                print("\nFUNC DEF: ", repr(s.var_types))
                 self.block = var
                 new_instr = []
                 for (i, atm2) in enumerate(params):
@@ -2196,7 +2192,8 @@ class Functions(Tuples):
                         if j == Jump(label):
                             print("WHAT NOW?")
 
-                return FunctionDef(self.block, [], new_blocks, none1, dtype, none2)
+                return (FunctionDef(self.block, [], new_blocks, none1, dtype, none2),  s.var_types)
+
             case _:
                 raise Exception('select_instructions_def: unexpected ' + repr(p))
 
@@ -2205,9 +2202,14 @@ class Functions(Tuples):
         match p:
             case CProgramDefs(body):
                 print("SELECT INSTRUCTIONS:")
-                defs = [self.select_instructions_def(s) for s in body]
+                defs = []
+                var_types = []
+                for s in body:
+                    d, v =  self.select_instructions_def(s)
+                    defs.append(d)
+                    var_types.append(v)
                 new_p = X86ProgramDefs(defs)
-                #new_p.var_types = p.var_types
+                new_p.var_types = var_types
                 print("X86:\n",repr(new_p))
                 return new_p
 
@@ -2223,12 +2225,12 @@ class Functions(Tuples):
         print("AH read vars")
         match i:
             case IndirectCallq(func, num_args):
-                print("AH read vars IndirectCallq")
-                return set([Reg(r) for r in arg_registers[0:num_args]])
+                print("AH read vars IndirectCallq", num_args)
+                return set([Reg(r) for r in arg_registers[0:int(str(num_args).replace('$',''))]])
 
-            case TailJmp(func, num_args):
-                print("AH read TailJmp")
-                return set([Reg(r) for r in arg_registers[0:num_args]])
+            case TailJmp(func, num_args) | TailJump(func, num_args):
+                print("AH read TailJmp", num_args)
+                return set([Reg(r) for r in arg_registers[0:int(str(num_args).replace('$',''))]])
 
             case _:
                 return super().read_vars(i)
@@ -2245,14 +2247,26 @@ class Functions(Tuples):
                 return super().write_vars(i)
 
 
+    # This is a method so it can be overridden (e.g. in functions.py)
+    def liveness_transfer(self, blocks : Dict[str, List[instr]],
+                          cfg : DirectedAdjList,
+                          live_before : Dict[instr, Set[location]],
+                          live_after : Dict[instr, Set[location]]) -> Set[location]:
+        def live_xfer(label, live_before_succ):
+            if label.endswith('conclusion'):
+                return {Reg('rax'), Reg('rsp')}
+            else:
+                return self.uncover_live_block(label, blocks[label], live_before_succ, live_before, live_after)
+        return live_xfer
+
+
     def uncover_live_def(self, s: stmt) -> Dict[instr, Set[location]]:
         print("AH uncover_live_def")
         match s:
             case FunctionDef(var, [], blocks, none1, dtype, none2):
-                print("BUE :", blocks)
                 (live_before, live_after) = self.uncover_live_blocks(blocks)
                 trace("uncover live:")
-                self.trace_live(p, live_before, live_after)
+                self.trace_live(s, live_before, live_after)
                 return live_after
 
 
@@ -2283,8 +2297,8 @@ class Functions(Tuples):
         print("I BUILD INFERENCE")
         match p:
             case X86ProgramDefs(body):
-                #self.var_types = p.var_types
-                defs = [self.build_interference_def(s, live_after) for s in body]
+                self.var_types = p.var_types
+                defs = [self.build_interference_def(s, live_after[i]) for i, s in enumerate(body)]
                 return defs
 
             case _:
@@ -2295,35 +2309,46 @@ class Functions(Tuples):
     ###########################################################################
     # Assign Homes: Allocate Registers
     ###########################################################################
+    def collect_locals_instr(self, i: instr) -> Set[location]:
+        match i:
+            case IndirectCallq(func, num_args):
+                return set()
 
-    #def alloc_reg_blocks(self, blocks, graph: UndirectedAdjList) -> X86Program:
-    #    variables = set().union(*[self.collect_locals_instrs(ss) for (l, ss) in blocks.items()])
-    #    (color, spills) = self.color_graph(graph, variables)
-    #    used_callee = self.used_callee_reg(variables, color)
-    #    num_callee = len(used_callee)
-    #    home = {x: self.identify_home(color[x], 8 + 8 * num_callee) for x in variables}
-    #    new_blocks = {l: self.assign_homes_instrs(ss, home) for (l, ss) in blocks.items()}
-    #    return (new_blocks, used_callee, num_callee, spills)
+            case Jump(label):
+                return set()
+
+            case _:
+                super().collect_locals_instr(i)
+
+    #def collect_locals_arg(self, a: arg) -> Set[location]:
+    #    match a:
+
+    #def collect_locals_instrs(self, ss: List[stmt]) -> Set[location]:
+    #    print("SS", ss)
+    #    for s in ss:
+    #         print("s", self.collect_locals_instr(s))
+    #    #return set().union(*[self.collect_locals_instr(s) for s in ss])
 
 
-    def allocate_registers_def(self, s: stmt, graph: UndirectedAdjList) -> FunctionDef:
+    def allocate_registers_def(self, s: stmt, graph: UndirectedAdjList, var_types) -> FunctionDef:
         match s:
             case FunctionDef(var, [], blocks, none1, dtype, none2):
-                (new_blocks, used_callee, num_callee, spills) = self.alloc_reg_blocks(blocks, graph)
-                new_def = X86ProgramDefs(new_blocks)
-                new_def.stack_space = align(8 * (num_callee + len(spills)), 16) - 8 * num_callee
+                (new_blocks, used_callee, num_callee, stack_spills, root_spills) = self.alloc_reg_blocks(blocks, graph, var_types)
+                new_def = X86Program(new_blocks)
+                new_def.stack_space = align(8 * (num_callee + len(stack_spills)), 16) - 8 * num_callee
                 new_def.used_callee = used_callee
+                new_def.num_root_spills = len(root_spills)
                 return new_def
 
             case _:
                 raise Exception('allocate_registers_def: unexpected ' + repr(p))
 
 
-
     def allocate_registers(self, p: X86ProgramDefs, graph: UndirectedAdjList) -> X86ProgramDefs:
+        print(p.var_types)
         match p:
             case X86ProgramDefs(blocks):
-                defs = [self.allocate_registers_def(s, graph) for s in body]
+                defs = [self.allocate_registers_def(s, graph[i], p.var_types[i]) for i, s in enumerate(blocks)]
                 return defs
 
             case _:
