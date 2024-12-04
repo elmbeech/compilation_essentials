@@ -292,12 +292,14 @@ class Var:
     def collect_locals_instr(self, i: instr) -> Set[location]:
         match i:
             case Instr(inst, args):
-                lss = [self.collect_locals_arg(a) for a in args]
-                return set().union(*lss)
+                l_a = [self.collect_locals_arg(a) for a in args]
+                return set().union(*l_a)
+
             case Callq(func, num_args):
                 return set()
+
             case _:
-                raise Exception('error in collect_locals_instr, unknown: ' + repr(i))
+                return super().collect_locals_instr(i)
 
     def collect_locals_arg(self, a: arg) -> Set[location]:
         match a:
@@ -313,7 +315,8 @@ class Var:
                 raise Exception('error in collect_locals_arg, unknown: ' + repr(a))
 
     def collect_locals_instrs(self, ss: List[stmt]) -> Set[location]:
-        return set().union(*[self.collect_locals_instr(s) for s in ss])
+        l_i = [self.collect_locals_instr(s) for s in ss]
+        return set().union(*l_i)
 
     @staticmethod
     def gen_stack_access(i: int) -> arg:
@@ -1769,7 +1772,6 @@ class Tuples(WhileLoops):
                 return X86Program(body)
 
 
-
 class Functions(Tuples):
 
     ###########################################################################
@@ -1912,7 +1914,6 @@ class Functions(Tuples):
         match p:
             case Module(body):
                 new_module = Module([self.reveal_functions_stmt(s, funcs) for s in body])
-                #print('REVEAL FUNCTIONS:\n', repr(new_module), funcs)
                 return new_module
 
             case _:
@@ -1934,7 +1935,6 @@ class Functions(Tuples):
         match p:
             case Module(body):
                 new_module = Module([self.limit_functions_stmt(s) for s in body])
-                #print('LIMIT FUNCTIONS:\n', repr(new_module))
                 return new_module
 
             case _:
@@ -1982,7 +1982,6 @@ class Functions(Tuples):
                     raise Exception('Error: rco_exps FunRef should be complex but lands here atomic.')
 
             case Expr(Call(atm, atms)):
-                sys.exit("this shit hit!")  # bue 20241130: just wanne see when this catches first.
                 (new_func, bs1) = self.rco_exp(atm, True)
                 (new_args, bss2) = unzip([self.rco_exp(arg, True) for arg in atms])
                 if need_atomic:
@@ -2017,7 +2016,6 @@ class Functions(Tuples):
     def explicate_pred(self, cnd: expr, thn: List[stmt], els: List[stmt], basic_blocks: Dict[str, List[stmt]]) -> List[stmt]:
         # Apply becomes Call?
         # Call can be boolean, FunRef can't be boolean!
-        print("PRED", cnd)
         match cnd:
             case Call(func, args):  # function might return boolean
                 return self.explicate_pred(cnd, thn, els, basic_blocks)  # bue 20241202: so what is special?
@@ -2029,7 +2027,6 @@ class Functions(Tuples):
     # tail position
     def explicate_tail(self, e: expr, basic_blocks: Dict[str, List[stmt]]) -> List[stmt]:
         # tail call optimization for translation of Return statements
-        print("TAIL", e)
         match e:
             case Begin(body, exp): # body result
                 #ss = self.explicate_effect(exp, [], basic_blocks)
@@ -2053,7 +2050,6 @@ class Functions(Tuples):
 
     # assign
     def explicate_assign(self, e: expr, x: Variable, cont: List[stmt], basic_blocks: Dict[str, List[stmt]]) -> List[stmt]:
-        print("ASSIGN", e, x)
         match e:
             case Call(label, args):
                 #new_args = self.explicate_assign(label, label, cont, basic_blocks)
@@ -2083,7 +2079,6 @@ class Functions(Tuples):
                 return self.explicate_tail(var, basic_blocks)
 
             case _:
-                print("STMT", s)
                 return super().explicate_stmt(s, cont, basic_blocks)
 
 
@@ -2091,13 +2086,11 @@ class Functions(Tuples):
     def explicate_def(self, d: stmt, ) -> stmt:
         match d:
             case FunctionDef(var, params, stms, none1, dtype, none2):
-                print("THIS IS FUNCDEF", var, type(var), "\n",d)
 
                 # bue 20241130: note from assignment review lecture.
                 #if isinstance(dtype, VoidType):
                 #    stms = stms
                 #    return None
-
 
                 # explicate_tail call??
                 #if var == 'main':
@@ -2111,7 +2104,7 @@ class Functions(Tuples):
                 for s in reversed(stms):
                     new_body = self.explicate_stmt(s, new_body, basic_blocks)
                 basic_blocks[var + '_start'] = new_body
-                return FunctionDef(var, params, basic_blocks, none1, dtype, none2) # this might be wrong
+                return FunctionDef(var, params, basic_blocks, none1, dtype, none2)
 
             case _:
                 raise Exception('explicate_def: unexpected ' + repr(d))
@@ -2121,7 +2114,6 @@ class Functions(Tuples):
     def explicate_control(self, p: Module) -> CProgram:
         match p:
             case Module(body):
-                print("THIS IS CTRL")
                 defs = [self.explicate_def(s) for s in body]
                 return CProgramDefs(defs)
 
@@ -2134,7 +2126,6 @@ class Functions(Tuples):
     ############################################################################
 
     def select_arg(self, a: expr) -> arg:
-        print("SELECT ARG: ",repr(a))
         match a:
             case FunRef(label, arity):
                 return Global(label)
@@ -2144,23 +2135,20 @@ class Functions(Tuples):
 
 
     def select_stmt(self, s: stmt) -> List[instr]:
-        print("SELECT STMTS: ",repr(s))
         match s:
             case Assign([lhs],FunRef(label,arity)):
                 return [Instr('leaq',[Global(label),self.select_arg(lhs)])]
 
             case Assign([lhs],Call(atm,l_atm)):
                 new_instr = []
-                print("L_ATM: ",l_atm)
                 for (i, atm2) in enumerate(l_atm):
                     new_instr.append(Instr('movq',[self.select_arg(atm2), Reg(arg_registers[i])]))
-                new_instr.append(IndirectCallq(atm,Immediate(len(l_atm))))
+                new_instr.append(IndirectCallq(self.select_arg(atm), len(l_atm)))
                 new_instr.append(Instr('movq',[Reg('rax'), self.select_arg(lhs)]))
 
                 return new_instr
 
             case Return(value):
-                print("THATS ME!")
                 ins = self.select_stmt(Assign([Reg('rax')], value))
                 return ins + [Jump(f'{self.block}_conclusion')]
 
@@ -2174,7 +2162,6 @@ class Functions(Tuples):
     def select_instructions_def(self, s:stmt):
         match s:
             case FunctionDef(var, params, stms, none1, dtype, none2):
-                print("\nFUNC DEF: ", repr(s.var_types))
                 self.block = var
                 new_instr = []
                 for (i, atm2) in enumerate(params):
@@ -2191,8 +2178,9 @@ class Functions(Tuples):
                     for j in i:
                         if j == Jump(label):
                             print("WHAT NOW?")
-
-                return (FunctionDef(self.block, [], new_blocks, none1, dtype, none2),  s.var_types)
+                func =  FunctionDef(self.block, [], new_blocks, none1, dtype, none2)
+                func.num_params = len(params)
+                return func,  s.var_types
 
             case _:
                 raise Exception('select_instructions_def: unexpected ' + repr(p))
@@ -2201,7 +2189,6 @@ class Functions(Tuples):
     def select_instructions(self, p: CProgramDefs) -> X86Program:
         match p:
             case CProgramDefs(body):
-                print("SELECT INSTRUCTIONS:")
                 defs = []
                 var_types = []
                 for s in body:
@@ -2210,7 +2197,7 @@ class Functions(Tuples):
                     var_types.append(v)
                 new_p = X86ProgramDefs(defs)
                 new_p.var_types = var_types
-                print("X86:\n",repr(new_p))
+                #print("X86:\n",repr(new_p))
                 return new_p
 
             case _:
@@ -2222,25 +2209,20 @@ class Functions(Tuples):
     ###########################################################################
 
     def read_vars(self, i: instr) -> Set[location]:
-        print("AH read vars")
         match i:
             case IndirectCallq(func, num_args):
-                print("AH read vars IndirectCallq", num_args)
-                return set([Reg(r) for r in arg_registers[0:int(str(num_args).replace('$',''))]])
+                return set([Reg(r) for r in arg_registers[0:num_args]])
 
             case TailJmp(func, num_args) | TailJump(func, num_args):
-                print("AH read TailJmp", num_args)
-                return set([Reg(r) for r in arg_registers[0:int(str(num_args).replace('$',''))]])
+                return set([Reg(r) for r in arg_registers[0:num_args]])
 
             case _:
                 return super().read_vars(i)
 
 
     def write_vars(self, i: instr) -> Set[location]:
-        print("AH write vars")
         match i:
             case IndirectCallq(func, num_args):
-                print("AH write vars IndirectCallq")
                 return set([Reg(r) for r in caller_save_for_alloc])
 
             case _:
@@ -2261,7 +2243,6 @@ class Functions(Tuples):
 
 
     def uncover_live_def(self, s: stmt) -> Dict[instr, Set[location]]:
-        print("AH uncover_live_def")
         match s:
             case FunctionDef(var, [], blocks, none1, dtype, none2):
                 (live_before, live_after) = self.uncover_live_blocks(blocks)
@@ -2271,7 +2252,6 @@ class Functions(Tuples):
 
 
     def uncover_live(self, p: X86ProgramDefs) -> List[Dict[instr, Set[location]]]:
-        print("AH uncover_live")
         match p:
             case X86ProgramDefs(body):
                 defs = [self.uncover_live_def(s) for s in body]
@@ -2283,7 +2263,6 @@ class Functions(Tuples):
     ###########################################################################
 
     def build_interference_def(self, s: stmt, live_after: Dict[instr, Set[location]]) -> UndirectedAdjList:
-        print("I BUILD INFERENCE DEF")
         match s:
             case FunctionDef(var, [], blocks, none1, dtype, none2):
                 #case FunctionDef(var, params, stms, none1, dtype, none2):
@@ -2294,7 +2273,6 @@ class Functions(Tuples):
 
 
     def build_interference(self, p: X86ProgramDefs, live_after: Dict[instr, Set[location]]) -> List[UndirectedAdjList]:
-        print("I BUILD INFERENCE")
         match p:
             case X86ProgramDefs(body):
                 self.var_types = p.var_types
@@ -2309,6 +2287,10 @@ class Functions(Tuples):
     ###########################################################################
     # Assign Homes: Allocate Registers
     ###########################################################################
+
+    #def collect_locals_arg(self, a: arg) -> Set[location]:
+    #    match a:
+
     def collect_locals_instr(self, i: instr) -> Set[location]:
         match i:
             case IndirectCallq(func, num_args):
@@ -2318,23 +2300,25 @@ class Functions(Tuples):
                 return set()
 
             case _:
-                super().collect_locals_instr(i)
+                return super().collect_locals_instr(i)
 
-    #def collect_locals_arg(self, a: arg) -> Set[location]:
+    #def assign_homes_arg(self, a: arg, home: Dict[Variable, arg]) -> arg:
     #    match a:
 
-    #def collect_locals_instrs(self, ss: List[stmt]) -> Set[location]:
-    #    print("SS", ss)
-    #    for s in ss:
-    #         print("s", self.collect_locals_instr(s))
-    #    #return set().union(*[self.collect_locals_instr(s) for s in ss])
+    def assign_homes_instr(self, i: instr, home: Dict[Variable, arg]) -> instr:
+        match i:
+            case IndirectCallq(func, num_args):
+                return i
+
+            case _:
+                return super().assign_homes_instr(i, home)
 
 
     def allocate_registers_def(self, s: stmt, graph: UndirectedAdjList, var_types) -> FunctionDef:
         match s:
             case FunctionDef(var, [], blocks, none1, dtype, none2):
                 (new_blocks, used_callee, num_callee, stack_spills, root_spills) = self.alloc_reg_blocks(blocks, graph, var_types)
-                new_def = X86Program(new_blocks)
+                new_def = FunctionDef(var, [], new_blocks, none1, dtype, none2)
                 new_def.stack_space = align(8 * (num_callee + len(stack_spills)), 16) - 8 * num_callee
                 new_def.used_callee = used_callee
                 new_def.num_root_spills = len(root_spills)
@@ -2345,14 +2329,28 @@ class Functions(Tuples):
 
 
     def allocate_registers(self, p: X86ProgramDefs, graph: UndirectedAdjList) -> X86ProgramDefs:
-        print(p.var_types)
         match p:
             case X86ProgramDefs(blocks):
                 defs = [self.allocate_registers_def(s, graph[i], p.var_types[i]) for i, s in enumerate(blocks)]
-                return defs
+                return X86ProgramDefs(defs)
 
             case _:
                 raise Exception('allocate_registers: unexpected ' + repr(p))
+
+
+    def assign_homes(self, pseudo_x86: X86ProgramDefs) -> X86ProgramDefs:
+        live_after = self.uncover_live(pseudo_x86)
+        graph = self.build_interference(pseudo_x86, live_after)
+        #trace(graph.show().source)
+        trace("")
+        new_p = self.allocate_registers(pseudo_x86, graph)
+        print('ASSIGN HOMES:\n', repr(new_p))
+        return new_p
+
+
+    ############################################################################
+    # Patch Instructions
+    ############################################################################
 
     def patch_instr(self, i: instr) -> List[instr]:
         match i:
@@ -2375,6 +2373,11 @@ class Functions(Tuples):
                     return [i]
             case _:
                 return [i]
+
+
+    ############################################################################
+    # Prelude & Conclusion
+    ############################################################################
 
     def prelude_and_conclusion(self, p: X86Program) -> X86Program:
         new_block = {}
