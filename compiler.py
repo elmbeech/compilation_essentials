@@ -2354,6 +2354,74 @@ class Functions(Tuples):
             case _:
                 raise Exception('allocate_registers: unexpected ' + repr(p))
 
+    def patch_instr(self, i: instr) -> List[instr]:
+        match i:
+            case Instr('movq', [s, t]):
+                if (self.in_memory(s) or self.big_constant(s)) \
+                       and self.in_memory(t):
+                    return [Instr('movq', [s, Reg('rax')]),
+                            Instr('movq', [Reg('rax'), t])]
+                else:
+                    return [i]
+            case Instr(inst, [s, t]) \
+                if (self.in_memory(s) and self.in_memory(t)) \
+                   or self.big_constant(s):
+                return [Instr('movq', [s, Reg('rax')]),
+                        Instr(inst, [Reg('rax'), t])]
+            case TailJmp(arg,ints):
+                if arg != Reg('rax'):
+                    return [TailJmp(Reg('rax'),ints)]
+                else:
+                    return [i]
+            case _:
+                return [i]
+
+    def prelude_and_conclusion(self, p: X86Program) -> X86Program:
+        new_block = {}
+        match p:
+            case X86Program(body):
+                for blocks in body:
+                    match blocks:
+                        case FunctionDef(var, params, stms, none1, dtype, none2):
+                            #new_blocks.update(stms)
+
+                            save_callee_reg = []
+                            for r in p.used_callee:
+                                save_callee_reg.append(Instr('pushq', [Reg(r)]))
+                            restore_callee_reg = []
+                            for r in reversed(p.used_callee):
+                                restore_callee_reg.append(Instr('popq', [Reg(r)]))
+                            rootstack_size = 2 ** 16
+                            #heap_size = 2 ** 16
+                            heap_size = 2 ** 4   # this size is good for revealing bugs
+                            initialize_heaps = \
+                                [Instr('movq', [Immediate(rootstack_size), Reg('rdi')]),
+                                 Instr('movq', [Immediate(heap_size), Reg('rsi')]),
+                                 Callq('initialize', 2),
+                                 Instr('movq', [Global('rootstack_begin'),
+                                                Reg('r15')])]
+                            initialize_roots = []
+                            for i in range(0, p.num_root_spills):
+                                initialize_roots += \
+                                    [Instr('movq', [Immediate(0), Deref('r15', 0)]),
+                                     Instr('addq', [Immediate(8), Reg('r15')])]
+                            main = [Instr('pushq', [Reg('rbp')]), \
+                                    Instr('movq', [Reg('rsp'), Reg('rbp')])] \
+                                    + save_callee_reg \
+                                    + [Instr('subq',[Immediate(p.stack_space),Reg('rsp')])]\
+                                    + initialize_heaps \
+                                    + initialize_roots \
+                                    + [Jump('start')]
+                            concl = [Instr('subq', [Immediate(8 * p.num_root_spills),
+                                                    Reg('r15')])] \
+                                  + [Instr('addq', [Immediate(p.stack_space),Reg('rsp')])] \
+                                  + restore_callee_reg \
+                                  + [Instr('popq', [Reg('rbp')]),
+                                     Instr('retq', [])]
+                            body['main'] = main
+                            body['conclusion'] = concl
+                            new_block.update(stms)
+        return X86Program(new_block)
 
 
 # run
@@ -2440,4 +2508,5 @@ interp_dict = {
     #'assign_homes': racket_interp_x86,
     #'patch_instructions': racket_interp_x86,
 }
+
 
