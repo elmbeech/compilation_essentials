@@ -2216,6 +2216,49 @@ class Functions(Tuples):
                 raise Exception('select_instructions: unexpected ' + repr(p))
 
 
+    ###########################################################################
+    # Assign Homes: Uncover Live
+    ###########################################################################
+
+    def read_vars(self, i: instr) -> Set[location]:
+        print("AH read vars")
+        match i:
+            case IndirectCallq(func, num_args):
+                print("AH read vars IndirectCallq")
+                return set([Reg(r) for r in arg_registers[0:num_args]])
+
+            case TailJmp(func, num_args):
+                print("AH read TailJmp")
+                return set([Reg(r) for r in arg_registers[0:num_args]])
+
+            case _:
+                return super().read_vars(i)
+
+
+    def write_vars(self, i: instr) -> Set[location]:
+        print("AH write vars")
+        match i:
+            case IndirectCallq(func, num_args):
+                print("AH write vars IndirectCallq")
+                return set([Reg(r) for r in caller_save_for_alloc])
+
+            case _:
+                return super().write_vars(i)
+
+
+    ###########################################################################
+    # Assign Homes: Build Inference Graph
+    ###########################################################################
+
+    #def
+    # add inference ediges between call_live tuple_type variables  and callee saved registers
+
+    ###########################################################################
+    # Assign Homes: Allocate Registers
+    ###########################################################################
+
+    #def
+
 # run
 class Compiler(Functions):
     pass
