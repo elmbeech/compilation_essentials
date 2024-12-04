@@ -1839,13 +1839,13 @@ class Functions(Tuples):
             case BoolOp(op, [lexp, rexp]):
                 new_lexp = self.reveal_functions_exp(lexp, funcs)
                 new_rexp = self.reveal_functions_exp(rexp, funcs)
-                return BoolOp(op [new_lexp, new_rexp])
+                return BoolOp(op, [new_lexp, new_rexp])
 
             case IfExp(testexp, thenexp, elseexp):
                 new_test = self.reveal_functions_exp(testexp, funcs)
                 new_thenexp = self.reveal_functions_exp(thenexp, funcs)
                 new_elseexp = self.reveal_functions_exp(elseexp, funcs)
-                return IfExp(new_testexp, new_thenexp, new_elseexp)
+                return IfExp(new_test, new_thenexp, new_elseexp)
 
             # here the magic happens
             case Name(idf):
