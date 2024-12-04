@@ -957,7 +957,7 @@ class Conditionals(RegisterAllocator):
 
             case Return(value):
                 ins = self.select_stmt(Assign([Reg('rax')], value))
-                return ins + [Jump('conclusion')]
+                return ins + [Jump(f'conclusion')]
 
             case _:
                 return super().select_stmt(s)
@@ -1021,13 +1021,13 @@ class Conditionals(RegisterAllocator):
         else:
             return []
 
-    def blocks_to_graph(self,
-                        blocks: Dict[str, List[instr]]) -> DirectedAdjList:
+    def blocks_to_graph(self, blocks: Dict[str, List[instr]]) -> DirectedAdjList:
         graph = DirectedAdjList()
         for u in blocks.keys():
             graph.add_vertex(u)
         for (u, ss) in blocks.items():
             for s in ss:
+                print("BUE!!", u, s)
                 for v in self.adjacent_instr(s):
                     graph.add_edge(u, v)
         return graph
@@ -1058,9 +1058,9 @@ class Conditionals(RegisterAllocator):
                 cfg = self.blocks_to_graph(body)
                 cfg_trans = transpose(cfg)
                 live_before_block = \
-                    {'conclusion': {Reg('rax'), Reg('rsp')}}
+                    {f'conclusion': {Reg('rax'), Reg('rsp')}}
                 for l in topological_sort(cfg_trans):
-                    if l != 'conclusion':
+                    if l != f'conclusion':
                         adj_live = [live_before_block[v] \
                                     for v in cfg.adjacent(l)]
                         live_before_succ = set().union(*adj_live)
@@ -1295,11 +1295,10 @@ class WhileLoops(Conditionals):
                           live_before : Dict[instr, Set[location]],
                           live_after : Dict[instr, Set[location]]) -> Set[location]:
         def live_xfer(label, live_before_succ):
-            if label == 'conclusion':
+            if label == f'conclusion':i
                 return {Reg('rax'), Reg('rsp')}
             else:
-                return self.uncover_live_block(label, blocks[label], live_before_succ,
-                                               live_before, live_after)
+                return self.uncover_live_block(label, blocks[label], live_before_succ, live_before, live_after)
         return live_xfer
 
     def uncover_live_blocks(self, blocks):
@@ -2250,6 +2249,7 @@ class Functions(Tuples):
         print("AH uncover_live_def")
         match s:
             case FunctionDef(var, [], blocks, none1, dtype, none2):
+                print("BUE :", blocks)
                 (live_before, live_after) = self.uncover_live_blocks(blocks)
                 trace("uncover live:")
                 self.trace_live(p, live_before, live_after)
@@ -2268,54 +2268,16 @@ class Functions(Tuples):
     # Assign Homes: Build Inference Graph
     ###########################################################################
 
-    #def
-    # add inference ediges between call_live tuple_type variables  and callee saved registers
-
-    #def interfere_instr(self, i: instr, graph,
-    #                    live_after: Dict[instr, Set[location]]):
-    #    match i:
-    #        case Instr('movzbq', [s, t]):
-    #            for v in live_after[i]:
-    #                for d in self.write_vars(i):
-    #                    if v != d and s != v:
-    #                        graph.add_edge(d, v)
-
-    #        case Callq(func, n) if func == 'collect':
-    #            for v in live_after[i]:
-    #                if not (v.id in registers) and self.is_root_type(self.var_types[v.id]):
-    #                    for u in callee_save_for_alloc:
-    #                        graph.add_edge(Reg(u), v)
-    #            self.interfere_instr(i, graph, live_after)
-
-    #        case Instr('movq', [s, t]):
-    #            for v in live_after[i]:
-    #                for d in self.write_vars(i):
-    #                    if v != d and s != v:
-    #                        graph.add_edge(d, v)
-
-    #        case _:
-    #            for v in live_after[i]:
-    #                for d in self.write_vars(i):
-    #                    if v != d:
-    #                        graph.add_edge(d, v)
-
-    #        case _:
-    #           raise Exception("Hmmmm")
-
-    #def build_interference_blocks(self, blocks, live_after: Dict[instr, Set[location]]) -> UndirectedAdjList:
-    #    graph = UndirectedAdjList()
-    #    for (l, ss) in blocks.items():
-    #        for i in ss:
-    #            self.interfere_instr(i, graph, live_after)
-    #    return graph
-
-
-    def build_interference_def(self, s, live_after: Dict[instr, Set[location]]) -> UndirectedAdjList:
+    def build_interference_def(self, s: stmt, live_after: Dict[instr, Set[location]]) -> UndirectedAdjList:
         print("I BUILD INFERENCE DEF")
         match s:
             case FunctionDef(var, [], blocks, none1, dtype, none2):
                 #case FunctionDef(var, params, stms, none1, dtype, none2):
                 return self.build_interference_blocks(blocks, live_after)
+
+            case _:
+                raise Exception('build_interference_def: unexpected ' + repr(p))
+
 
     def build_interference(self, p: X86ProgramDefs, live_after: Dict[instr, Set[location]]) -> List[UndirectedAdjList]:
         print("I BUILD INFERENCE")
@@ -2334,7 +2296,40 @@ class Functions(Tuples):
     # Assign Homes: Allocate Registers
     ###########################################################################
 
-    #def
+    #def alloc_reg_blocks(self, blocks, graph: UndirectedAdjList) -> X86Program:
+    #    variables = set().union(*[self.collect_locals_instrs(ss) for (l, ss) in blocks.items()])
+    #    (color, spills) = self.color_graph(graph, variables)
+    #    used_callee = self.used_callee_reg(variables, color)
+    #    num_callee = len(used_callee)
+    #    home = {x: self.identify_home(color[x], 8 + 8 * num_callee) for x in variables}
+    #    new_blocks = {l: self.assign_homes_instrs(ss, home) for (l, ss) in blocks.items()}
+    #    return (new_blocks, used_callee, num_callee, spills)
+
+
+    def allocate_registers_def(self, s: stmt, graph: UndirectedAdjList) -> FunctionDef:
+        match s:
+            case FunctionDef(var, [], blocks, none1, dtype, none2):
+                (new_blocks, used_callee, num_callee, spills) = self.alloc_reg_blocks(blocks, graph)
+                new_def = X86ProgramDefs(new_blocks)
+                new_def.stack_space = align(8 * (num_callee + len(spills)), 16) - 8 * num_callee
+                new_def.used_callee = used_callee
+                return new_def
+
+            case _:
+                raise Exception('allocate_registers_def: unexpected ' + repr(p))
+
+
+
+    def allocate_registers(self, p: X86ProgramDefs, graph: UndirectedAdjList) -> X86ProgramDefs:
+        match p:
+            case X86ProgramDefs(blocks):
+                defs = [self.allocate_registers_def(s, graph) for s in body]
+                return defs
+
+            case _:
+                raise Exception('allocate_registers: unexpected ' + repr(p))
+
+
 
 # run
 class Compiler(Functions):
