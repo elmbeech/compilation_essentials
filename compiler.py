@@ -62,7 +62,7 @@ import interp_Cif
 import interp_Lwhile
 import interp_Ltup
 import interp_Ctup
-from interp_x86.eval_x86 import interp_x86
+from eval_x86 import interp_x86
 from racket_interp_x86 import *
 from math import floor
 from priority_queue import PriorityQueue
@@ -1867,9 +1867,9 @@ class Functions(Tuples):
                  new_exps = [self.reveal_functions_exp(exp, funcs) for exp in exps]
                  return Tuple(new_exps, Load())
 
-            case UnaryOP(op, exp):
+            case UnaryOp(op, exp):
                 new_exp = self.reveal_functions_exp(exp, funcs)
-                return UnaryOP(op, new_exp)
+                return UnaryOp(op, new_exp)
 
             case _:
                 return self.reveal_functions_exp(e)
