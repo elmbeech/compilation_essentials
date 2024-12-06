@@ -2308,7 +2308,7 @@ class Functions(Tuples):
     def assign_homes_instr(self, i: instr, home: Dict[Variable, arg]) -> instr:
         match i:
             case IndirectCallq(func, num_args):
-                return i
+                return IndirectCallq(home[func], num_args)
 
             case _:
                 return super().assign_homes_instr(i, home)
@@ -2322,6 +2322,7 @@ class Functions(Tuples):
                 new_def.stack_space = align(8 * (num_callee + len(stack_spills)), 16) - 8 * num_callee
                 new_def.used_callee = used_callee
                 new_def.num_root_spills = len(root_spills)
+                new_def.num_params = s.num_params
                 return new_def
 
             case _:
@@ -2361,9 +2362,7 @@ class Functions(Tuples):
                             Instr('movq', [Reg('rax'), t])]
                 else:
                     return [i]
-            case Instr(inst, [s, t]) \
-                if (self.in_memory(s) and self.in_memory(t)) \
-                   or self.big_constant(s):
+            case Instr(inst, [s, t]) if (self.in_memory(s) and self.in_memory(t)) or self.big_constant(s):
                 return [Instr('movq', [s, Reg('rax')]),
                         Instr(inst, [Reg('rax'), t])]
             case TailJmp(arg,ints):
@@ -2374,25 +2373,43 @@ class Functions(Tuples):
             case _:
                 return [i]
 
+    def patch_instructions_def(self, i: instr) -> instr:
+        print("PATCH", i)
+        match i:
+            case FunctionDef(var, [], blocks, none1, dtype, none2):
+                new_blocks = {l: self.patch_instrs(ii) for (l, ii) in blocks.items()}
+                new_funcdef = FunctionDef(var, [], new_blocks, none1, dtype, none2)
+                new_funcdef.stack_space = i.stack_space
+                new_funcdef.used_callee = i.used_callee
+                new_funcdef.num_root_spills = i.num_root_spills
+                new_funcdef.num_params = i.num_params
+                return new_funcdef
+
+    def patch_instructions(self, p: X86ProgramDefs) -> X86ProgramDefs:
+        match p:
+            case X86ProgramDefs(body):
+                new_funcdef = [self.patch_instructions_def(funcdef) for funcdef in body]
+                new_p = X86ProgramDefs(new_funcdef)
+                return new_p
 
     ############################################################################
     # Prelude & Conclusion
     ############################################################################
 
-    def prelude_and_conclusion(self, p: X86Program) -> X86Program:
-        new_block = {}
+    def prelude_and_conclusion(self, p: X86ProgramDefs) -> X86Program:
+        print("PRELUDE AND CONC", p)
         match p:
-            case X86Program(body):
-                for blocks in body:
-                    match blocks:
+            case X86ProgramDefs(body):
+                new_block = {}
+                for d in body:
+                    match d:
                         case FunctionDef(var, params, stms, none1, dtype, none2):
-                            #new_blocks.update(stms)
 
                             save_callee_reg = []
-                            for r in p.used_callee:
+                            for r in d.used_callee:
                                 save_callee_reg.append(Instr('pushq', [Reg(r)]))
                             restore_callee_reg = []
-                            for r in reversed(p.used_callee):
+                            for r in reversed(d.used_callee):
                                 restore_callee_reg.append(Instr('popq', [Reg(r)]))
                             rootstack_size = 2 ** 16
                             #heap_size = 2 ** 16
@@ -2404,27 +2421,41 @@ class Functions(Tuples):
                                  Instr('movq', [Global('rootstack_begin'),
                                                 Reg('r15')])]
                             initialize_roots = []
-                            for i in range(0, p.num_root_spills):
+                            for i in range(0, d.num_root_spills):
                                 initialize_roots += \
                                     [Instr('movq', [Immediate(0), Deref('r15', 0)]),
                                      Instr('addq', [Immediate(8), Reg('r15')])]
-                            main = [Instr('pushq', [Reg('rbp')]), \
-                                    Instr('movq', [Reg('rsp'), Reg('rbp')])] \
-                                    + save_callee_reg \
-                                    + [Instr('subq',[Immediate(p.stack_space),Reg('rsp')])]\
-                                    + initialize_heaps \
-                                    + initialize_roots \
-                                    + [Jump('start')]
-                            concl = [Instr('subq', [Immediate(8 * p.num_root_spills),
-                                                    Reg('r15')])] \
-                                  + [Instr('addq', [Immediate(p.stack_space),Reg('rsp')])] \
-                                  + restore_callee_reg \
-                                  + [Instr('popq', [Reg('rbp')]),
-                                     Instr('retq', [])]
-                            body['main'] = main
-                            body['conclusion'] = concl
+
+                            main = [
+                                Instr('pushq', [Reg('rbp')]),
+                                Instr('movq', [Reg('rsp'), Reg('rbp')])
+                            ] + save_callee_reg \
+                            + [Instr('subq',[Immediate(d.stack_space),Reg('rsp')])]\
+                            + initialize_heaps \
+                            + initialize_roots \
+                            + [Jump(f'{var}_start')]
+
+                            concl = [
+                                Instr('subq', [Immediate(8 * d.num_root_spills),Reg('r15')])
+                            ] + [Instr('addq', [Immediate(d.stack_space),Reg('rsp')])] \
+                            + restore_callee_reg \
+                            + [Instr('popq', [Reg('rbp')]), Instr('retq', [])]
+
+                            #body['main'] = main
+                            #body['conclusion'] = concl
+
+                            new_block[var] = main
+                            new_block[f'{var}_conclusion'] = concl
+
                             new_block.update(stms)
-        return X86Program(new_block)
+
+                        case _:
+                            raise Exception('prelude_and_conclusion_def: unexpected ' + repr(p))
+
+                return X86Program(new_block)
+
+            case _:
+                raise Exception('prelude_and_conclusion: unexpected ' + repr(p))
 
 
 # run

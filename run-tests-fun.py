@@ -108,7 +108,7 @@ interp_dict = {
     # x86
     'select_instructions': racket_interp_x86,
     'assign_homes': racket_interp_pseudo_x86,
-    #'patch_instructions': racket_interp_x86,
+    'patch_instructions': racket_interp_x86,
 }
 
 
