@@ -7,7 +7,9 @@ import sys
 sys.path.append('../compilation_essentials')
 sys.path.append('../compilation_essentials/interp_x86')
 
-import compiler
+#import compiler
+import compiler_tup as compiler
+
 #import functions
 import interp_Ltup, interp_Ctup  # interp_Lvar, interp_Lif, interp_Cif, interp_Lwhile, interp_Ltup, interp_Ctup, interp_Lfun, interp_Cfun
 import type_check_Ltup, type_check_Ctup # type_check_Lvar, type_check_Lif, type_check_Cif, type_check_Lwhile, type_check_Cwhile, type_check_Ltup, type_check_Ctup, interp_Lfun, interp_Cfun
