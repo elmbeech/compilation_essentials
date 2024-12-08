@@ -4,7 +4,7 @@
 #
 # date: 2024-12-05
 # license: GPLv3
-# author: bue
+# author: bue, willem
 #
 # run: pyton3 linscan_tests.py
 #
