@@ -1369,36 +1369,45 @@ class Tuples(WhileLoops):
         match e:
             case Name(id):
                 return e
+
             case Constant(value):
                 return e
+
             case BinOp(left, op, right):
                 l = self.expose_alloc_exp(left)
                 r = self.expose_alloc_exp(right)
                 return BinOp(l, op, r)
+
             case UnaryOp(op, operand):
                 rand = self.expose_alloc_exp(operand)
                 return UnaryOp(op, rand)
+
             case Call(func, args):
                 fun = self.expose_alloc_exp(func)
                 new_args = [self.expose_alloc_exp(arg) for arg in args]
                 return Call(fun, new_args)
+
             case IfExp(test, body, orelse):
                 tst = self.expose_alloc_exp(test)
                 bod = self.expose_alloc_exp(body)
                 els = self.expose_alloc_exp(orelse)
                 return IfExp(tst, bod, els)
+
             case Begin(body, result):
                 new_body = [self.expose_alloc_stmt(s) for s in body]
                 new_result = self.expose_alloc_exp(result)
                 return Begin(new_body, new_result)
+
             case Compare(left, [op], [right]):
                 l = self.expose_alloc_exp(left);
                 r = self.expose_alloc_exp(right)
                 return Compare(l, [op], [r])
+
             case Tuple(es, Load()):
                 new_es = [self.expose_alloc_exp(e) for e in es]
                 alloc = Allocate(len(new_es), e.has_type)
                 return self.expose_alloc_tuple(new_es, e.has_type, alloc)
+
             case Subscript(tup, index, Load()):
                 return Subscript(self.expose_alloc_exp(tup),
                                  self.expose_alloc_exp(index),
@@ -1411,8 +1420,10 @@ class Tuples(WhileLoops):
         match s:
             case Assign(targets, value):
                 return Assign(targets, self.expose_alloc_exp(value))
+
             case Expr(value):
                 return Expr(self.expose_alloc_exp(value))
+
             case If(test, body, orelse):
                 return If(self.expose_alloc_exp(test),
                           [self.expose_alloc_stmt(s) for s in body],
@@ -1893,8 +1904,8 @@ class Functions(Tuples):
 
             case If(testexp, thenstms, elsestms):
                 new_testexp = self.reveal_functions_exp(testexp, funcs)
-                new_thenstms = [self.reveal_functions_stmt(thenstm, funcs) for stm in thenstms]
-                new_elsestms = [self.reveal_functions_stmt(elsestm, funcs) for stm in elsestms]
+                new_thenstms = [self.reveal_functions_stmt(stm, funcs) for stm in thenstms]
+                new_elsestms = [self.reveal_functions_stmt(stm, funcs) for stm in elsestms]
                 return If(new_testexp, new_thenstms, new_elsestms)
 
             case Return(exp):
@@ -1904,6 +1915,7 @@ class Functions(Tuples):
             case While(exp, stms, []):
                 new_exp = self.reveal_functions_exp(exp, funcs)
                 new_stms = [self.reveal_functions_stmt(stm, funcs) for stm in stms]
+                return While(new_exp, new_stms, [])
 
             case _:
                 raise Exception('Error @ reveal_functions_stmt : undefiend case!', s)
@@ -2139,13 +2151,15 @@ class Functions(Tuples):
             case Assign([lhs],FunRef(label,arity)):
                 return [Instr('leaq',[Global(label),self.select_arg(lhs)])]
 
-            case Assign([lhs],Call(atm,l_atm)):
+            case Assign([lhs], Call(Name('input_int'),l_atm)):
+                return super().select_stmt(s)
+
+            case Assign([lhs], Call(atm,l_atm)):
                 new_instr = []
                 for (i, atm2) in enumerate(l_atm):
                     new_instr.append(Instr('movq',[self.select_arg(atm2), Reg(arg_registers[i])]))
                 new_instr.append(IndirectCallq(self.select_arg(atm), len(l_atm)))
                 new_instr.append(Instr('movq',[Reg('rax'), self.select_arg(lhs)]))
-
                 return new_instr
 
             case Return(value):
@@ -2265,8 +2279,8 @@ class Functions(Tuples):
     def build_interference_def(self, s: stmt, live_after: Dict[instr, Set[location]]) -> UndirectedAdjList:
         match s:
             case FunctionDef(var, [], blocks, none1, dtype, none2):
-                #case FunctionDef(var, params, stms, none1, dtype, none2):
-                return self.build_interference_blocks(blocks, live_after)
+                graph = self.build_interference_blocks(blocks, live_after)
+                return graph
 
             case _:
                 raise Exception('build_interference_def: unexpected ' + repr(p))
@@ -2308,7 +2322,8 @@ class Functions(Tuples):
     def assign_homes_instr(self, i: instr, home: Dict[Variable, arg]) -> instr:
         match i:
             case IndirectCallq(func, num_args):
-                return IndirectCallq(home[func], num_args)
+                new_func = self.assign_homes_arg(func, home)
+                return IndirectCallq(new_func, num_args)
 
             case _:
                 return super().assign_homes_instr(i, home)
