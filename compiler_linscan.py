@@ -1007,6 +1007,7 @@ class Conditionals(RegisterAllocator):
             for s in ss:
                 for v in self.adjacent_instr(s):
                     graph.add_edge(u, v)
+        print("CFG:", graph.show())
         return graph
 
     def trace_live_blocks(self, blocks, live_before: Dict[instr, Set[location]],
@@ -1748,8 +1749,151 @@ class Tuples(WhileLoops):
                 return X86Program(body)
 
 
+class LinScan(Tuples):
+    #######################
+    #                     #
+    #   Uncover Live      #
+    #                     #
+    #######################
 
-class Compiler(Tuples):
+    # bue from earlier:: def vars_arg
+    # bue from earlier:: def read_vars
+    # bue from earlier:: def write_vars
+    # bue from earlier:: def uncover_live_instr
+
+    # bue: new
+    def uncover_live_interval(self,
+            live_interval : Dict[str, Dict[location, int]],
+            label : str,
+            live : Set[location],
+        ):
+        print("BUE live_interval", live_interval)
+        print("BUE label",  label)
+        print("BUE live", live)
+        for memory in live:
+            try:
+                live_interval[label][memory] += 1
+            except KeyError:
+                live_interval[label][memory] = 1
+
+    # bue: modified
+    def uncover_live_block(self,
+            label : str,
+            ss : List[stmt],
+            live : Set[location],
+            live_before : Dict[instr, Set[location]],
+            live_after : Dict[instr, Set[location]],
+            live_interval : Dict[str, Dict[location, int]],
+        ) -> Set[location]:
+        live_interval.update({label: {}})  # bue: reset live_interval block
+        # processing
+        for i in reversed(ss):
+            self.uncover_live_instr(i, live, live_before, live_after)
+            live = live_before[i]
+            self.uncover_live_interval(live_interval, label, live)  # bue: update live_interval
+        return live
+
+    # bue: modified
+    def liveness_transfer(self,
+            blocks : Dict[str, List[instr]],
+            cfg : DirectedAdjList,
+            live_before : Dict[instr, Set[location]],
+            live_after : Dict[instr, Set[location]],
+            live_interval : Dict[str, Dict[location, int]],
+        ) -> Set[location]:
+        def live_xfer(label, live_before_succ):
+            if label == 'conclusion':
+                live = {Reg('rax'), Reg('rsp')}
+                live_interval.update({label: {}})  # bue: reset live_interval block
+                self.uncover_live_interval(live_interval, label, live)  # bue: update live_interval
+                return live
+            else:
+                return self.uncover_live_block(
+                    label,
+                    blocks[label],
+                    live_before_succ,
+                    live_before,
+                    live_after,
+                    live_interval,
+                )
+        return live_xfer
+
+    # bue from earlier: def adjacent_instr
+    # bue from earlier: def blocks_to_graph
+
+    # bue: moified
+    def uncover_live_blocks(self,
+            blocks : Dict[str, List[instr]]
+        ):
+        live_before = {}
+        live_after = {}
+        live_interval = {}
+        cfg = self.blocks_to_graph(blocks)
+        transfer = self.liveness_transfer(
+            blocks,
+            cfg,
+            live_before,
+            live_after,
+            live_interval,
+        )
+        bottom = set()
+        join = lambda s, t: s.union(t)
+        # liveness is a backward analysis, so we transpose the CFG
+        analyze_dataflow(transpose(cfg), transfer, bottom, join)
+        # bue: unpack live_inerval
+        d_li = {}
+        for _ , block in live_interval.items():
+            for memory, interval in block.items():
+                try:
+                    d_li[memory] += interval
+                except KeyError:
+                    d_li[memory] = interval
+        live_interval = d_li
+        return live_before, live_after, live_interval
+
+    # bue from earlier:: def trace_live_blocks
+    # bue from earlier:: def trace_live
+
+    # bue: moified
+    def uncover_live(self,
+            p : X86Program
+        ) -> Dict[instr, Set[location]]:
+        match p:
+            case X86Program(blocks):
+                (live_before, live_after, live_interval) = self.uncover_live_blocks(blocks)
+                trace("uncover live:")
+                self.trace_live(p, live_before, live_after)
+                print("LIVE INTERVALS:", live_interval.items())
+                return live_after, live_interval
+
+
+    #######################
+    #                     #
+    # Register Allocation #
+    #                     #
+    #######################
+
+    def linscan_reg_alloc(self):
+        print("linscan")
+        return None
+
+    def expire_old(self):
+        print("expireOld")
+        return None
+
+    def spill_interval(self):
+        print("spillInterval")
+        return None
+
+    def assign_homes(self,p_x86 : X86Program) -> X86Program:
+        live_after, live_interval = self.uncover_live(p_x86)
+        linscan = self.linscan_reg_alloc()
+        expire = self.expire_old()
+        spill = self.spill_interval()
+        return None
+
+
+class Compiler(LinScan):
     pass
 
 
