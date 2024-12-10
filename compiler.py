@@ -880,6 +880,7 @@ class Conditionals(RegisterAllocator):
                 for s in reversed(orelse):
                     new_els = self.explicate_stmt(s, new_els, basic_blocks)
                 return self.explicate_pred(test, new_body, new_els, basic_blocks)
+
             case _:
                 raise Exception('explicate_stmt: unexpected ' + repr(s))
 
@@ -1783,6 +1784,7 @@ class Tuples(WhileLoops):
                 return X86Program(body)
 
 
+
 class Functions(Tuples):
 
     ###########################################################################
@@ -1880,8 +1882,7 @@ class Functions(Tuples):
                 return UnaryOp(op, new_exp)
 
             case _:
-                return self.reveal_functions_exp(e)
-                #raise Exception('Error @ reveal_functions_stmt : undefiend case', s)
+                raise Exception('Error @ reveal_functions_stmt : undefiend case', s)
 
 
     def reveal_functions_stmt(self, s: stmt, funcs: Dict) -> stmt:
@@ -2024,6 +2025,19 @@ class Functions(Tuples):
     # Explicate Control
     ############################################################################
 
+    # assign
+    #def explicate_assign(self, e: expr, label: Variable, cont: List[stmt], basic_blocks: Dict[str, List[stmt]]) -> List[stmt]:
+    #    match e:
+    #        case Call(label, args):
+    #            return [Assign([label], basic_blocks)] #+ cont
+
+    #        case FunRef(label, arity):
+    #            return [Assign([label], basic_blocks)] #+ cont
+
+    #        case _:
+    #            return super().explicate_assign(e, label, cont, basic_blocks)
+
+
     # cnd
     def explicate_pred(self, cnd: expr, thn: List[stmt], els: List[stmt], basic_blocks: Dict[str, List[stmt]]) -> List[stmt]:
         # Apply becomes Call?
@@ -2038,46 +2052,25 @@ class Functions(Tuples):
 
     # tail position
     def explicate_tail(self, e: expr, basic_blocks: Dict[str, List[stmt]]) -> List[stmt]:
-        # tail call optimization for translation of Return statements
         match e:
             case Begin(body, exp): # body result
-                #ss = self.explicate_effect(exp, [], basic_blocks)
-                ss = self.explicate_assign(exp, cont, basic_blocks)  # bue 20241202: from wher is the cont?
+                ss = self.explicate_effect(exp, [], basic_blocks)
                 for s in reversed(body):
                     ss = self.explicate_stmt(s, ss, basic_blocks)
                 return ss
 
             case IfExp(cnd, expthen, expelse):
-                goto = self.create_block(cont, basic_blocks)  # bue 20241202: from wher is the cont?
+                goto = self.create_block(cnd, basic_blocks)
                 new_expthen = self.explicate_effect(expthen, goto, basic_blocks)
                 new_expelse = self.explicate_effect(expelse, goto, basic_blocks)
                 return self.explicate_pred(cnd, new_expthen, new_expelse, basic_blocks)
 
             case Call(label, args):
-                #new_func = self.create_block(label, basic_blocks) # bue 20241202: what for?
                 return [TailCall(label, agrs)]
 
             case _:
-                return [Return(e)]  # main should be Return(Constant(0)), the oders jump to callee address.
-
-    # assign
-    def explicate_assign(self, e: expr, x: Variable, cont: List[stmt], basic_blocks: Dict[str, List[stmt]]) -> List[stmt]:
-        match e:
-            case Call(label, args):
-                #new_args = self.explicate_assign(label, label, cont, basic_blocks)
-                #for stm in reversed(args):
-                #    new_args = self.explicate_stmt(label, new_args, basic_blocks)
-                #return new_args
-                #return Call(label, new_args)
-                return [Assign([x], e)] + cont  # bue 20241202: already covered under Conditionals class?
-
-            case FunRef(label, arity):
-                #new_label = self.create_block(, basic_blocks) # goto
-                #return self.explicate_assign(new_label, label, cont, basic_blocks)
-                return [Assign([x], e)] + cont  # bue 20241202: already covered under Conditionals class?
-
-            case _:
-                return super().explicate_assign(e, x, cont, basic_blocks)
+                print("RETURN IN explicate_tail", e)
+                return [Return(e)]
 
 
     # stmt
@@ -2088,6 +2081,8 @@ class Functions(Tuples):
             # if
             # return
             case Return(var):
+                print("RETURN IN explicate_stmt", s)
+                new_basic_block = [self.basic_blocks(i, cont, cont)  for i in basic_blocks]
                 return self.explicate_tail(var, basic_blocks)
 
             case _:
@@ -2098,23 +2093,17 @@ class Functions(Tuples):
     def explicate_def(self, d: stmt, ) -> stmt:
         match d:
             case FunctionDef(var, params, stms, none1, dtype, none2):
-
-                # bue 20241130: note from assignment review lecture.
-                #if isinstance(dtype, VoidType):
-                #    stms = stms
-                #    return None
-
-                # explicate_tail call??
-                #if var == 'main':
-                new_body = [Return(Constant(0))]
-                #else:
-                #    new_body = []
-
                 # do the work
                 basic_blocks = {}
-                #for s in stms:
+                # process tail calls
+                if (var == 'main'):
+                    new_body = [Return(Constant(0))]
+                else:
+                    new_body = []
+                # process instructions
                 for s in reversed(stms):
                     new_body = self.explicate_stmt(s, new_body, basic_blocks)
+                # process block
                 basic_blocks[var + '_start'] = new_body
                 return FunctionDef(var, params, basic_blocks, none1, dtype, none2)
 

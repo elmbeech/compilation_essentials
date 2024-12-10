@@ -51,6 +51,10 @@ typecheck_dict = {
     #'shrink': typecheck_Ltup,
     'shrink': typecheck_Lfun,
 
+    'reveal_functions': typecheck_Lfun,
+
+    'limit_functions': typecheck_Lfun,
+
     #'expose_allocation': typecheck_Ltup,
     'expose_allocation': typecheck_Lfun,
 
