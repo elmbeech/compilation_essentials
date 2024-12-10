@@ -1762,19 +1762,19 @@ class LinScan(Tuples):
     # bue from earlier:: def uncover_live_instr
 
     # bue: new
-    def uncover_live_interval(self,
-            live_interval : Dict[str, Dict[location, int]],
-            label : str,
-            live : Set[location],
-        ):
-        print("BUE live_interval", live_interval)
-        print("BUE label",  label)
-        print("BUE live", live)
-        for memory in live:
-            try:
-                live_interval[label][memory] += 1
-            except KeyError:
-                live_interval[label][memory] = 1
+    #def uncover_live_interval(self,
+    #        live_interval : Dict[str, Dict[location, int]],
+    #        label : str,
+    #        live : Set[location],
+    #    ):
+    #    print("BUE live_interval", live_interval)
+    #    print("BUE label",  label)
+    #    print("BUE live", live)
+    #    for memory in live:
+    #        try:
+    #            live_interval[label][memory] += 1
+    #        except KeyError:
+    #            live_interval[label][memory] = 1
 
     # bue: modified
     def uncover_live_block(self,
@@ -1783,14 +1783,14 @@ class LinScan(Tuples):
             live : Set[location],
             live_before : Dict[instr, Set[location]],
             live_after : Dict[instr, Set[location]],
-            live_interval : Dict[str, Dict[location, int]],
+            #live_interval : Dict[str, Dict[location, int]],
         ) -> Set[location]:
-        live_interval.update({label: {}})  # bue: reset live_interval block
+        #live_interval.update({label: {}})  # bue: reset live_interval block
         # processing
         for i in reversed(ss):
             self.uncover_live_instr(i, live, live_before, live_after)
             live = live_before[i]
-            self.uncover_live_interval(live_interval, label, live)  # bue: update live_interval
+            #self.uncover_live_interval(live_interval, label, live)  # bue: update live_interval
         return live
 
     # bue: modified
@@ -1799,13 +1799,13 @@ class LinScan(Tuples):
             cfg : DirectedAdjList,
             live_before : Dict[instr, Set[location]],
             live_after : Dict[instr, Set[location]],
-            live_interval : Dict[str, Dict[location, int]],
+            #live_interval : Dict[str, Dict[location, int]],
         ) -> Set[location]:
         def live_xfer(label, live_before_succ):
             if label == 'conclusion':
                 live = {Reg('rax'), Reg('rsp')}
-                live_interval.update({label: {}})  # bue: reset live_interval block
-                self.uncover_live_interval(live_interval, label, live)  # bue: update live_interval
+                #live_interval.update({label: {}})  # bue: reset live_interval block
+                #self.uncover_live_interval(live_interval, label, live)  # bue: update live_interval
                 return live
             else:
                 return self.uncover_live_block(
@@ -1814,12 +1814,22 @@ class LinScan(Tuples):
                     live_before_succ,
                     live_before,
                     live_after,
-                    live_interval,
+                    #live_interval,
                 )
         return live_xfer
 
     # bue from earlier: def adjacent_instr
     # bue from earlier: def blocks_to_graph
+
+
+    def dfs(self, visited, graph, node):  #function for dfs
+        if node not in visited:
+            print (node)
+            #visited.add(node)
+            visited.append(node)
+            for neighbour in graph.adjacent(node):
+                self.dfs(visited, graph, neighbour)
+
 
     # bue: moified
     def uncover_live_blocks(self,
@@ -1829,26 +1839,47 @@ class LinScan(Tuples):
         live_after = {}
         live_interval = {}
         cfg = self.blocks_to_graph(blocks)
+        print("CFG", cfg.show())
+        # Driver Code
+        print("Following is the Depth-First Search")
+        #visited = set() # Set to keep track of visited nodes of graph.
+        ls_block = []# Set to keep track of visited nodes of graph.
+        self.dfs(ls_block, cfg, 'start')
         transfer = self.liveness_transfer(
             blocks,
             cfg,
             live_before,
             live_after,
-            live_interval,
+            #live_interval,
         )
         bottom = set()
         join = lambda s, t: s.union(t)
         # liveness is a backward analysis, so we transpose the CFG
         analyze_dataflow(transpose(cfg), transfer, bottom, join)
+        print("LIVE AFTER", live_after)
+        i = -1
+        ls_block.pop(ls_block.index('conclusion'))
+        for s_block in ls_block:
+            i += 1
+            if s_block == 'conclusion':
+                live_interval[Reg('rax')][1] = i
+                live_interval[Reg('rsp')][1] = i
+            for instruct in blocks[s_block]:
+                for location in live_after[instruct]:
+                    try:
+                        live_interval[location][1] = i
+                    except KeyError:
+                        live_interval.update({location : [i, None]})
+
         # bue: unpack live_inerval
-        d_li = {}
-        for _ , block in live_interval.items():
-            for memory, interval in block.items():
-                try:
-                    d_li[memory] += interval
-                except KeyError:
-                    d_li[memory] = interval
-        live_interval = d_li
+        #d_li = {}
+        #for _ , block in live_interval.items():
+        #    for memory, interval in block.items():
+        #        try:
+        #            d_li[memory] += interval
+        #        except KeyError:
+        #            d_li[memory] = interval
+        #live_interval = d_li
         return live_before, live_after, live_interval
 
     # bue from earlier:: def trace_live_blocks
