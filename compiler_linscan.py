@@ -1760,103 +1760,51 @@ class LinScan(Tuples):
     # bue from earlier:: def read_vars
     # bue from earlier:: def write_vars
     # bue from earlier:: def uncover_live_instr
-
-    # bue: new
-    #def uncover_live_interval(self,
-    #        live_interval : Dict[str, Dict[location, int]],
-    #        label : str,
-    #        live : Set[location],
-    #    ):
-    #    print("BUE live_interval", live_interval)
-    #    print("BUE label",  label)
-    #    print("BUE live", live)
-    #    for memory in live:
-    #        try:
-    #            live_interval[label][memory] += 1
-    #        except KeyError:
-    #            live_interval[label][memory] = 1
-
-    # bue: modified
-    def uncover_live_block(self,
-            label : str,
-            ss : List[stmt],
-            live : Set[location],
-            live_before : Dict[instr, Set[location]],
-            live_after : Dict[instr, Set[location]],
-            #live_interval : Dict[str, Dict[location, int]],
-        ) -> Set[location]:
-        #live_interval.update({label: {}})  # bue: reset live_interval block
-        # processing
-        for i in reversed(ss):
-            self.uncover_live_instr(i, live, live_before, live_after)
-            live = live_before[i]
-            #self.uncover_live_interval(live_interval, label, live)  # bue: update live_interval
-        return live
-
-    # bue: modified
-    def liveness_transfer(self,
-            blocks : Dict[str, List[instr]],
-            cfg : DirectedAdjList,
-            live_before : Dict[instr, Set[location]],
-            live_after : Dict[instr, Set[location]],
-            #live_interval : Dict[str, Dict[location, int]],
-        ) -> Set[location]:
-        def live_xfer(label, live_before_succ):
-            if label == 'conclusion':
-                live = {Reg('rax'), Reg('rsp')}
-                #live_interval.update({label: {}})  # bue: reset live_interval block
-                #self.uncover_live_interval(live_interval, label, live)  # bue: update live_interval
-                return live
-            else:
-                return self.uncover_live_block(
-                    label,
-                    blocks[label],
-                    live_before_succ,
-                    live_before,
-                    live_after,
-                    #live_interval,
-                )
-        return live_xfer
-
+    # bue from earlier:: uncover_live_interval
+    # bue from earlier:: uncover_live_block
+    # bue from earlier:: liveness_transfer
     # bue from earlier: def adjacent_instr
     # bue from earlier: def blocks_to_graph
 
 
-    def dfs(self, visited, graph, node):  #function for dfs
-        if node not in visited:
-            print (node)
-            #visited.add(node)
-            visited.append(node)
-            for neighbour in graph.adjacent(node):
-                self.dfs(visited, graph, neighbour)
+    # bue: new depth first search algorithm
+    def dfs(self, l_visited, o_graph, s_node):
+        if s_node not in l_visited:
+            print(s_node)
+            l_visited.append(s_node)
+            for s_neighbour in o_graph.adjacent(s_node):
+                self.dfs(l_visited, o_graph, s_neighbour)
 
 
     # bue: moified
     def uncover_live_blocks(self,
             blocks : Dict[str, List[instr]]
         ):
+        # get control flow graph
+        cfg = self.blocks_to_graph(blocks)
+        #print("CFG:", cfg.show())
+
+        # flatten graph by depth first search
+        ls_block = []  # to track visited nodes
+        self.dfs(ls_block, cfg, 'start')
+        #print("DFS:", ls_block)
+
+        # get live after sets
         live_before = {}
         live_after = {}
-        live_interval = {}
-        cfg = self.blocks_to_graph(blocks)
-        print("CFG", cfg.show())
-        # Driver Code
-        print("Following is the Depth-First Search")
-        #visited = set() # Set to keep track of visited nodes of graph.
-        ls_block = []# Set to keep track of visited nodes of graph.
-        self.dfs(ls_block, cfg, 'start')
         transfer = self.liveness_transfer(
             blocks,
             cfg,
             live_before,
             live_after,
-            #live_interval,
         )
         bottom = set()
         join = lambda s, t: s.union(t)
-        # liveness is a backward analysis, so we transpose the CFG
         analyze_dataflow(transpose(cfg), transfer, bottom, join)
-        print("LIVE AFTER", live_after)
+        #print("LA:", live_after.items())
+
+        # get live interval data
+        live_interval = {}
         i = -1
         ls_block.pop(ls_block.index('conclusion'))
         for s_block in ls_block:
@@ -1870,20 +1818,13 @@ class LinScan(Tuples):
                         live_interval[location][1] = i
                     except KeyError:
                         live_interval.update({location : [i, None]})
-
-        # bue: unpack live_inerval
-        #d_li = {}
-        #for _ , block in live_interval.items():
-        #    for memory, interval in block.items():
-        #        try:
-        #            d_li[memory] += interval
-        #        except KeyError:
-        #            d_li[memory] = interval
-        #live_interval = d_li
+        # print('LI:', live_interval.items())
+        # output
         return live_before, live_after, live_interval
 
     # bue from earlier:: def trace_live_blocks
     # bue from earlier:: def trace_live
+
 
     # bue: moified
     def uncover_live(self,
@@ -1894,7 +1835,6 @@ class LinScan(Tuples):
                 (live_before, live_after, live_interval) = self.uncover_live_blocks(blocks)
                 trace("uncover live:")
                 self.trace_live(p, live_before, live_after)
-                print("LIVE INTERVALS:", live_interval.items())
                 return live_after, live_interval
 
 
@@ -1904,23 +1844,57 @@ class LinScan(Tuples):
     #                     #
     #######################
 
-    def linscan_reg_alloc(self):
-        print("linscan")
+    def spill_interval(self, active, i):
+        print("processing: spillInterval")
+        if active[-1][1][1][1] > i[1][1]:
+            #arg_reg_index -= 1  # register[i] <- register[spill]
+            #location[spill] <- new strack location
+            #active.pop(-1)  # remove spill from active
+            # add i to active
+            #active = sorted(active, key=lambda n:n[1][1][1])  # sorted by increasing end point
+            print("spill_at_interval if")
+        else:
+            # location[i] <- new strack location
+            print("spill_at_interval else")
+        return active
+
+
+    def expire_old(self, active, i):
+        print("processing: expireOld")
+        print("active_before", active)
+        for j in active:
+            if j[1][1][1] >= i[1][0]:
+                return active
+            else:
+                active.pop(0)
+                arg_reg_index -= 1
+                print("active_after", active)
+        return active
+
+
+    def linscan_reg_alloc(self, live_interval):
+        print("processing: linscan")
+        active = []
+        arg_reg_index = 0
+        for interval in sorted(live_interval.items(),key=lambda n:n[1][0],reverse = True):
+            match interval[0]:
+                case Reg(idf):
+                    pass
+                case _:  # only variables
+                    active = self.expire_old(active, interval)
+                    if arg_reg_index >= len(arg_registers):
+                        active = self.spill_interval(active, interval)
+                    else:
+                        reg = arg_registers[arg_reg_index]
+                        active.append([reg, interval])
+                        active = sorted(active, key=lambda n:n[1][1][1])
+                        arg_reg_index += 1
         return None
 
-    def expire_old(self):
-        print("expireOld")
-        return None
-
-    def spill_interval(self):
-        print("spillInterval")
-        return None
 
     def assign_homes(self,p_x86 : X86Program) -> X86Program:
         live_after, live_interval = self.uncover_live(p_x86)
-        linscan = self.linscan_reg_alloc()
-        expire = self.expire_old()
-        spill = self.spill_interval()
+        linscan = self.linscan_reg_alloc(live_interval)
         return None
 
 
