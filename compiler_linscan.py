@@ -555,7 +555,7 @@ class RegisterAllocator(Var):
                 if u.id not in registers: # use match on u instead?
                     unavail_colors[u].add(c)
                     Q.increase_key(u)  # log(n)
-        
+
         return color, spills
 
     def identify_home(self, c: int, first_location: int) -> arg:
@@ -1851,28 +1851,32 @@ class LinScan(Tuples):
     #                     #
     #######################
 
-    def spill_interval(self, 
-            i: expr, 
-            active: [expr,location], 
+    def spill_interval(self,
+            i: expr,
+            active: [expr,location],
+            color,
             spills: Set[expr],
         ) -> [expr,location]:
         if active[-1][1][1][1] > i[1][1]:  # lat active variable interval
             spills.add(active[-1][0])
+            color.update({active[-1][0]: 0})
             #assign_reg.update({active[-1][0]: "spill"})
             active.pop(-1)
             active.append((i, "spill"))
             active = sorted(active, key=lambda n: n[1][1][1])  # sorted by increasing end point
         else:
             spills.add(i[0])
+            color.update({i[0]: 0})
             #assign_reg.update({i[0] : "spill"})
         print("SPILLS:", spills)
         print("ACTIVE:", active)
         return active
 
 
-    def expire_old(self, 
-            i: expr, 
+    def expire_old(self,
+            i: expr,
             active: [expr,location],
+            free_reg,
         ) -> [expr,location]:
         for j in active:
             if j[1][1][1] >= i[1][0]:  # endpoint inteval j >= start point inteval i
@@ -1884,7 +1888,7 @@ class LinScan(Tuples):
         return active
 
 
-    def linscan_reg_alloc(self, 
+    def linscan_reg_alloc(self,
             live_interval : Dict[location, List[int]],
         ) -> [Dict[location,int], Set[location]]:
         color = {}
@@ -1896,9 +1900,9 @@ class LinScan(Tuples):
                 case Reg(idf):
                     color.update({i[0]: register_color[i[0].id]})
                 case _:
-                    active = self.expire_old(i, active)
+                    active = self.expire_old(i, active, free_reg)
                     if len(active) == len(registers_for_alloc):
-                        active = self.spill_interval(i, active, spills)
+                        active = self.spill_interval(i, active, color, spills)
                     else:
                         reg = free_reg.pop(0)
                         active.append((reg, i))
@@ -1909,30 +1913,50 @@ class LinScan(Tuples):
         return color, spills
 
 
-    def allocate_registers(self, 
-            p: X86Program, 
+    def alloc_reg_blocks(self,
+            blocks,
+            #graph: UndirectedAdjList,
             live_interval: Dict[location, List[int]],
+            var_types
+        ) -> X86Program:
+        variables = set().union(*[self.collect_locals_instrs(ss) for (l, ss) in blocks.items()])
+        self.var_types = var_types
+        trace('var_types:')
+        trace(var_types)
+        #(color, spills) = self.color_graph(graph, variables)
+        color, spills = self.linscan_reg_alloc(live_interval)  # bue 20141211: replaces color_graph
+        # trace('spills:')
+        # trace(spills)
+        # trace('color:')
+        # trace(color)
+        root_spills = set()
+        stack_spills = set()
+        for s in spills:
+            if self.is_root_type(var_types[s.id]):
+                root_spills = root_spills.union(set([s.id]))
+            else:
+                stack_spills = stack_spills.union(set([s.id]))
+        used_callee = self.used_callee_reg(variables, color)
+        num_callee = len(used_callee)
+        home = {x: self.identify_home(color[x], 8 + 8 * num_callee) for x in variables}
+        trace('home:')
+        trace(home)
+        new_blocks = {l: self.assign_homes_instrs(ss, home) for (l, ss) in blocks.items()}
+        return (new_blocks, used_callee, num_callee, stack_spills, root_spills)
+
+
+    def allocate_registers(self,
+            p: X86Program,
+            live_interval: Dict[location, List[int]],
+            #graph: UndirectedAdjList
         ) -> X86Program:
         match p:
-            case X86Program(body):
-                variables = self.collect_locals_instrs(body)
-                color, spills = self.linscan_reg_alloc(live_interval)  # bue 20141211: replaces color_graph 
-                trace("color")
-                trace(color)
-                trace("")
-                used_callee = self.used_callee_reg(variables, color)
-                num_callee = len(used_callee)
-                home = {}
-                for x in variables:
-                    home[x] = self.identify_home(color[x], 8 + 8 * num_callee)
-                trace("home")
-                trace(home)
-                trace("")
-                new_body = [self.assign_homes_instr(s, home) for s in body]
-                new_p = X86Program(new_body)
-                new_p.stack_space = align(8 * (num_callee + len(spills)), 16) \
-                    - 8 * num_callee
+            case X86Program(blocks):
+                (new_blocks, used_callee, num_callee, stack_spills, root_spills) = self.alloc_reg_blocks(blocks, live_interval, p.var_types)
+                new_p = X86Program(new_blocks)
+                new_p.stack_space = align(8 * (num_callee + len(stack_spills)), 16) - 8 * num_callee
                 new_p.used_callee = used_callee
+                new_p.num_root_spills = len(root_spills)
                 return new_p
 
 
@@ -1942,8 +1966,7 @@ class LinScan(Tuples):
                 live_interval = self.uncover_live(x86p)
                 print("LIVE INTERVAL:", live_interval)
                 new_x86p = self.allocate_registers(x86p, live_interval)
-                return X86Program(new_x86p)
-
+                return new_x86p
 
 
 class Compiler(LinScan):
