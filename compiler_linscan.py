@@ -1857,17 +1857,16 @@ class LinScan(Tuples):
             color,
             spills: Set[expr],
         ) -> [expr,location]:
-        if active[-1][1][1][1] > i[1][1]:  # lat active variable interval
+        m = max(register_color.values()) + len(spills) + 1  # spill color
+        if active[-1][1][1][1] > i[1][1]:  # last active variable interval
             spills.add(active[-1][0])
-            color.update({active[-1][0]: 0})
-            #assign_reg.update({active[-1][0]: "spill"})
+            color.update({active[-1][0]: m})
             active.pop(-1)
             active.append((i, "spill"))
             active = sorted(active, key=lambda n: n[1][1][1])  # sorted by increasing end point
         else:
             spills.add(i[0])
-            color.update({i[0]: 0})
-            #assign_reg.update({i[0] : "spill"})
+            color.update({i[0]: m})
         print("SPILLS:", spills)
         print("ACTIVE:", active)
         return active
@@ -1880,7 +1879,7 @@ class LinScan(Tuples):
         ) -> [expr,location]:
         for j in active:
             if j[1][1][1] >= i[1][0]:  # endpoint inteval j >= start point inteval i
-                pass
+                break
             else:
                 free_reg.append(j[0])
                 active.pop(active.index(j))
@@ -1906,7 +1905,6 @@ class LinScan(Tuples):
                     else:
                         reg = free_reg.pop(0)
                         active.append((reg, i))
-                        #assign_reg.update({i[0]:reg})
                         color.update({i[0]: register_color[reg.id]})
         print("COLOR:", color)
         print("SPILLS:", spills)
