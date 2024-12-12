@@ -1750,28 +1750,29 @@ class Tuples(WhileLoops):
                 return X86Program(body)
 
 
-
-
 class LinScan(Tuples):
+
     #######################
     #                     #
     #   Uncover Live      #
     #                     #
     #######################
 
-    # bue from earlier:: def vars_arg
-    # bue from earlier:: def read_vars
-    # bue from earlier:: def write_vars
-    # bue from earlier:: def uncover_live_instr
-    # bue from earlier:: uncover_live_interval
-    # bue from earlier:: uncover_live_block
-    # bue from earlier:: liveness_transfer
-    # bue from earlier: def adjacent_instr
-    # bue from earlier: def blocks_to_graph
+    # inherted: def vars_arg
+    # inherted: def read_vars
+    # inherted: def write_vars
+    # inherted: def uncover_live_instr
+    # inherted: def liveness_transfer
+    # inherted: def adjacent_instr
+    # inherted: def blocks_to_graph
 
 
-    # bue: new depth first search algorithm
-    def flatten_dfs(self, l_visited, o_graph, s_node):
+    # new: depth first search algorithm
+    def flatten_dfs(self,
+            l_visited: List[str],
+            o_graph: UndirectedAdjList,
+            s_node: str,
+        ) -> None:
         if s_node not in l_visited:
             print(s_node)
             l_visited.append(s_node)
@@ -1779,10 +1780,37 @@ class LinScan(Tuples):
                 self.flatten_dfs(l_visited, o_graph, s_neighbour)
 
 
-    # bue: moified
+    # new: uncover_live_interval
+    def uncover_live_interval(self,
+            ls_block: List[str],
+            blocks: Dict[str,List[instr]],
+            live_after: Dict[instr,Set[location]],
+        ) -> Dict[location,List[int]]:
+        pass
+        live_interval = {}
+        i = -1
+        for s_block in ls_block:
+            if s_block == 'conclusion':
+                i += 1
+                live_interval[Reg('rax')][1] = i
+                i += 1
+                live_interval[Reg('rsp')][1] = i
+            else:
+                for instruct in blocks[s_block]:
+                    i += 1
+                    for memory in live_after[instruct]:
+                        try:
+                            live_interval[memory][1] = i
+                        except KeyError:
+                            live_interval.update({memory : [i, None]})
+        # print('LI:', live_interval.items())
+        return live_interval
+
+
+    # modification: from earlier class
     def uncover_live_blocks(self,
-            blocks : Dict[str,List[instr]]
-        ): #-> List[Dict[instr,Set[location]], Dict[instr,Set[location]], Dict[location,List[int]]]:
+            blocks: Dict[str,List[instr]],
+        ) -> [Dict[instr,Set[location]], Dict[instr,Set[location]], Dict[location,List[int]]]:
         # get control flow graph
         cfg = self.blocks_to_graph(blocks)
         #print("CFG:", cfg.show())
@@ -1807,42 +1835,29 @@ class LinScan(Tuples):
         #print("LA:", live_after.items())
 
         # get live interval data
-        live_interval = {}
-        i = -1
-        #ls_block.pop(ls_block.index('conclusion'))
-        for s_block in ls_block:
-            #i += 1
-            if s_block == 'conclusion':
-                i += 1
-                live_interval[Reg('rax')][1] = i
-                i += 1
-                live_interval[Reg('rsp')][1] = i
-            else:
-                for instruct in blocks[s_block]:
-                    i += 1
-                    for memory in live_after[instruct]:
-                        try:
-                            live_interval[memory][1] = i
-                        except KeyError:
-                            live_interval.update({memory : [i, None]})
-        # print('LI:', live_interval.items())
+        live_interval = self.uncover_live_interval(ls_block, blocks, live_after)
+
         # output
         return live_before, live_after, live_interval
 
-    # bue from earlier:: def trace_live_blocks
-    # bue from earlier:: def trace_live
+
+    # inherted: def trace_live_blocks
+    # inherted: def trace_live
 
 
-    # bue: moified
+    # modification: from earlier class
     def uncover_live(self,
-            p : X86Program
+            x86p: X86Program,
         ) -> Dict[instr, Set[location]]:
-        match p:
+        match x86p:
             case X86Program(blocks):
                 (live_before, live_after, live_interval) = self.uncover_live_blocks(blocks)
                 trace("uncover live:")
-                self.trace_live(p, live_before, live_after)
-                return live_interval  # live_after
+                self.trace_live(x86p, live_before, live_after)
+                print("LIVE INTERVAL:", live_interval)
+                return live_interval   # live_after is no longer needed.
+            case _:
+                raise Exception('error in uncover_live, unhandled: ' + repr(x86p))
 
 
     #######################
@@ -1851,10 +1866,11 @@ class LinScan(Tuples):
     #                     #
     #######################
 
+    # new: adapted form poletto sarkar 1999 linearscan register allocation publication
     def spill_interval(self,
             i: expr,
             active: [expr,location],
-            color,
+            color: Dict[expr,int],
             spills: Set[expr],
         ) -> [expr,location]:
         m = max(register_color.values()) + len(spills) + 1  # spill color
@@ -1872,10 +1888,11 @@ class LinScan(Tuples):
         return active
 
 
+    # new: adapted form poletto sarkar 1999 linearscan register allocation publication
     def expire_old(self,
             i: expr,
             active: [expr,location],
-            free_reg,
+            free_reg: List[location],
         ) -> [expr,location]:
         for j in active:
             if j[1][1][1] >= i[1][0]:  # endpoint inteval j >= start point inteval i
@@ -1887,6 +1904,7 @@ class LinScan(Tuples):
         return active
 
 
+    # new: adapted form poletto sarkar 1999 linearscan register allocation publication
     def linscan_reg_alloc(self,
             live_interval : Dict[location, List[int]],
         ) -> [Dict[location,int], Set[location]]:
@@ -1911,18 +1929,18 @@ class LinScan(Tuples):
         return color, spills
 
 
+    # modification: from earlier class
     def alloc_reg_blocks(self,
-            blocks,
-            #graph: UndirectedAdjList,
-            live_interval: Dict[location, List[int]],
-            var_types
+            blocks: List[stmt],
+            live_interval: Dict[location,List[int]],
+            var_types: Dict[str,type],
         ) -> X86Program:
+        print("BUE var_types:", var_types)
         variables = set().union(*[self.collect_locals_instrs(ss) for (l, ss) in blocks.items()])
         self.var_types = var_types
         trace('var_types:')
         trace(var_types)
-        #(color, spills) = self.color_graph(graph, variables)
-        color, spills = self.linscan_reg_alloc(live_interval)  # bue 20141211: replaces color_graph
+        color, spills = self.linscan_reg_alloc(live_interval)   # replaces color_graph
         # trace('spills:')
         # trace(spills)
         # trace('color:')
@@ -1943,28 +1961,40 @@ class LinScan(Tuples):
         return (new_blocks, used_callee, num_callee, stack_spills, root_spills)
 
 
+    # modification: from earlier class
     def allocate_registers(self,
-            p: X86Program,
-            live_interval: Dict[location, List[int]],
-            #graph: UndirectedAdjList
+            x86p: X86Program,
+            live_interval: Dict[location,List[int]],
         ) -> X86Program:
-        match p:
+        match x86p:
             case X86Program(blocks):
-                (new_blocks, used_callee, num_callee, stack_spills, root_spills) = self.alloc_reg_blocks(blocks, live_interval, p.var_types)
-                new_p = X86Program(new_blocks)
-                new_p.stack_space = align(8 * (num_callee + len(stack_spills)), 16) - 8 * num_callee
-                new_p.used_callee = used_callee
-                new_p.num_root_spills = len(root_spills)
-                return new_p
+                (new_blocks, used_callee, num_callee, stack_spills, root_spills) = self.alloc_reg_blocks(blocks, live_interval, x86p.var_types)
+                new_x86p = X86Program(new_blocks)
+                new_x86p.stack_space = align(8 * (num_callee + len(stack_spills)), 16) - 8 * num_callee
+                new_x86p.used_callee = used_callee
+                new_x86p.num_root_spills = len(root_spills)
+                return new_x86p
+
+            case _:
+                raise Exception('error in allocate_registers, unhandled: ' + repr(x86p))
 
 
+    ################################################################
+    #                                                              #
+    # Asssign Homes (calls: Uncover live and Registrer Allocation) #
+    #                                                              #
+    ################################################################
+
+    # modification: from earlier class
     def assign_homes(self, x86p : X86Program) -> X86Program:
         match x86p:
             case X86Program(body):
                 live_interval = self.uncover_live(x86p)
-                print("LIVE INTERVAL:", live_interval)
                 new_x86p = self.allocate_registers(x86p, live_interval)
                 return new_x86p
+
+            case _:
+                raise Exception('error in assign_homes, unhandled: ' + repr(x86p))
 
 
 class Compiler(LinScan):
