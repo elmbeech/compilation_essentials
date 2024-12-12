@@ -555,6 +555,7 @@ class RegisterAllocator(Var):
                 if u.id not in registers: # use match on u instead?
                     unavail_colors[u].add(c)
                     Q.increase_key(u)  # log(n)
+        
         return color, spills
 
     def identify_home(self, c: int, first_location: int) -> arg:
@@ -1007,7 +1008,7 @@ class Conditionals(RegisterAllocator):
             for s in ss:
                 for v in self.adjacent_instr(s):
                     graph.add_edge(u, v)
-        print("CFG:", graph.show())
+        #print("CFG:", graph.show())
         return graph
 
     def trace_live_blocks(self, blocks, live_before: Dict[instr, Set[location]],
@@ -1749,6 +1750,8 @@ class Tuples(WhileLoops):
                 return X86Program(body)
 
 
+
+
 class LinScan(Tuples):
     #######################
     #                     #
@@ -1768,25 +1771,25 @@ class LinScan(Tuples):
 
 
     # bue: new depth first search algorithm
-    def dfs(self, l_visited, o_graph, s_node):
+    def flatten_dfs(self, l_visited, o_graph, s_node):
         if s_node not in l_visited:
             print(s_node)
             l_visited.append(s_node)
             for s_neighbour in o_graph.adjacent(s_node):
-                self.dfs(l_visited, o_graph, s_neighbour)
+                self.flatten_dfs(l_visited, o_graph, s_neighbour)
 
 
     # bue: moified
     def uncover_live_blocks(self,
-            blocks : Dict[str, List[instr]]
-        ):
+            blocks : Dict[str,List[instr]]
+        ): #-> List[Dict[instr,Set[location]], Dict[instr,Set[location]], Dict[location,List[int]]]:
         # get control flow graph
         cfg = self.blocks_to_graph(blocks)
         #print("CFG:", cfg.show())
 
         # flatten graph by depth first search
         ls_block = []  # to track visited nodes
-        self.dfs(ls_block, cfg, 'start')
+        self.flatten_dfs(ls_block, cfg, 'start')
         #print("DFS:", ls_block)
 
         # get live after sets
@@ -1806,18 +1809,22 @@ class LinScan(Tuples):
         # get live interval data
         live_interval = {}
         i = -1
-        ls_block.pop(ls_block.index('conclusion'))
+        #ls_block.pop(ls_block.index('conclusion'))
         for s_block in ls_block:
-            i += 1
+            #i += 1
             if s_block == 'conclusion':
+                i += 1
                 live_interval[Reg('rax')][1] = i
+                i += 1
                 live_interval[Reg('rsp')][1] = i
-            for instruct in blocks[s_block]:
-                for location in live_after[instruct]:
-                    try:
-                        live_interval[location][1] = i
-                    except KeyError:
-                        live_interval.update({location : [i, None]})
+            else:
+                for instruct in blocks[s_block]:
+                    i += 1
+                    for memory in live_after[instruct]:
+                        try:
+                            live_interval[memory][1] = i
+                        except KeyError:
+                            live_interval.update({memory : [i, None]})
         # print('LI:', live_interval.items())
         # output
         return live_before, live_after, live_interval
@@ -1835,7 +1842,7 @@ class LinScan(Tuples):
                 (live_before, live_after, live_interval) = self.uncover_live_blocks(blocks)
                 trace("uncover live:")
                 self.trace_live(p, live_before, live_after)
-                return live_after, live_interval
+                return live_interval  # live_after
 
 
     #######################
@@ -1844,58 +1851,99 @@ class LinScan(Tuples):
     #                     #
     #######################
 
-    def spill_interval(self, active, i):
-        print("processing: spillInterval")
-        if active[-1][1][1][1] > i[1][1]:
-            #arg_reg_index -= 1  # register[i] <- register[spill]
-            #location[spill] <- new strack location
-            #active.pop(-1)  # remove spill from active
-            # add i to active
-            #active = sorted(active, key=lambda n:n[1][1][1])  # sorted by increasing end point
-            print("spill_at_interval if")
+    def spill_interval(self, 
+            i: expr, 
+            active: [expr,location], 
+            spills: Set[expr],
+        ) -> [expr,location]:
+        if active[-1][1][1][1] > i[1][1]:  # lat active variable interval
+            spills.add(active[-1][0])
+            #assign_reg.update({active[-1][0]: "spill"})
+            active.pop(-1)
+            active.append((i, "spill"))
+            active = sorted(active, key=lambda n: n[1][1][1])  # sorted by increasing end point
         else:
-            # location[i] <- new strack location
-            print("spill_at_interval else")
+            spills.add(i[0])
+            #assign_reg.update({i[0] : "spill"})
+        print("SPILLS:", spills)
+        print("ACTIVE:", active)
         return active
 
 
-    def expire_old(self, active, i):
-        print("processing: expireOld")
-        print("active_before", active)
+    def expire_old(self, 
+            i: expr, 
+            active: [expr,location],
+        ) -> [expr,location]:
         for j in active:
-            if j[1][1][1] >= i[1][0]:
-                return active
+            if j[1][1][1] >= i[1][0]:  # endpoint inteval j >= start point inteval i
+                pass
             else:
-                active.pop(0)
-                arg_reg_index -= 1
-                print("active_after", active)
+                free_reg.append(j[0])
+                active.pop(active.index(j))
+        print("ACTTIVE:", active)
         return active
 
 
-    def linscan_reg_alloc(self, live_interval):
-        print("processing: linscan")
+    def linscan_reg_alloc(self, 
+            live_interval : Dict[location, List[int]],
+        ) -> [Dict[location,int], Set[location]]:
+        color = {}
+        spills = set()
         active = []
-        arg_reg_index = 0
-        for interval in sorted(live_interval.items(),key=lambda n:n[1][0],reverse = True):
-            match interval[0]:
+        free_reg = [Reg(r) for r in registers_for_alloc]
+        for i in sorted(live_interval.items(), key=lambda n: n[1][0]):
+            match i[0]:
                 case Reg(idf):
-                    pass
-                case _:  # only variables
-                    active = self.expire_old(active, interval)
-                    if arg_reg_index >= len(arg_registers):
-                        active = self.spill_interval(active, interval)
+                    color.update({i[0]: register_color[i[0].id]})
+                case _:
+                    active = self.expire_old(i, active)
+                    if len(active) == len(registers_for_alloc):
+                        active = self.spill_interval(i, active, spills)
                     else:
-                        reg = arg_registers[arg_reg_index]
-                        active.append([reg, interval])
-                        active = sorted(active, key=lambda n:n[1][1][1])
-                        arg_reg_index += 1
-        return None
+                        reg = free_reg.pop(0)
+                        active.append((reg, i))
+                        #assign_reg.update({i[0]:reg})
+                        color.update({i[0]: register_color[reg.id]})
+        print("COLOR:", color)
+        print("SPILLS:", spills)
+        return color, spills
 
 
-    def assign_homes(self,p_x86 : X86Program) -> X86Program:
-        live_after, live_interval = self.uncover_live(p_x86)
-        linscan = self.linscan_reg_alloc(live_interval)
-        return None
+    def allocate_registers(self, 
+            p: X86Program, 
+            live_interval: Dict[location, List[int]],
+        ) -> X86Program:
+        match p:
+            case X86Program(body):
+                variables = self.collect_locals_instrs(body)
+                color, spills = self.linscan_reg_alloc(live_interval)  # bue 20141211: replaces color_graph 
+                trace("color")
+                trace(color)
+                trace("")
+                used_callee = self.used_callee_reg(variables, color)
+                num_callee = len(used_callee)
+                home = {}
+                for x in variables:
+                    home[x] = self.identify_home(color[x], 8 + 8 * num_callee)
+                trace("home")
+                trace(home)
+                trace("")
+                new_body = [self.assign_homes_instr(s, home) for s in body]
+                new_p = X86Program(new_body)
+                new_p.stack_space = align(8 * (num_callee + len(spills)), 16) \
+                    - 8 * num_callee
+                new_p.used_callee = used_callee
+                return new_p
+
+
+    def assign_homes(self, x86p : X86Program) -> X86Program:
+        match x86p:
+            case X86Program(body):
+                live_interval = self.uncover_live(x86p)
+                print("LIVE INTERVAL:", live_interval)
+                new_x86p = self.allocate_registers(x86p, live_interval)
+                return X86Program(new_x86p)
+
 
 
 class Compiler(LinScan):
@@ -1982,4 +2030,5 @@ interp_dict = {
     #'assign_homes': racket_interp_x86,
     #'patch_instructions': racket_interp_x86,
 }
+
 
