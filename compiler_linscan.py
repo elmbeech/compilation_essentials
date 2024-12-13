@@ -66,6 +66,8 @@ from interp_x86.eval_x86 import interp_x86
 from racket_interp_x86 import *
 from math import floor
 from priority_queue import PriorityQueue
+import sys
+import time
 import type_check_Lvar
 import type_check_Lif
 import type_check_Cif
@@ -76,6 +78,8 @@ import type_check_Ctup
 from utils import *
 from x86_ast import *
 
+# set recursion limit
+sys.setrecursionlimit(16384)
 
 # types
 
@@ -1807,7 +1811,7 @@ class LinScan(Tuples):
         return live_interval
 
 
-    # modification: from earlier class
+    # adapted: from earlier class
     def uncover_live_blocks(self,
             blocks: Dict[str,List[instr]],
         ) -> [Dict[instr,Set[location]], Dict[instr,Set[location]], Dict[location,List[int]]]:
@@ -1845,7 +1849,7 @@ class LinScan(Tuples):
     # inherted: def trace_live
 
 
-    # modification: from earlier class
+    # adapted: from earlier class
     def uncover_live(self,
             x86p: X86Program,
         ) -> Dict[instr, Set[location]]:
@@ -1866,7 +1870,7 @@ class LinScan(Tuples):
     #                     #
     #######################
 
-    # new: adapted form poletto sarkar 1999 linearscan register allocation publication
+    # new: form poletto sarkar 1999 linearscan register allocation publication
     def spill_interval(self,
             i: expr,
             active: [expr,location],
@@ -1875,12 +1879,14 @@ class LinScan(Tuples):
         ) -> [expr,location]:
         m = max(register_color.values()) + len(spills) + 1  # spill color
         if active[-1][1][1][1] > i[1][1]:  # last active variable interval
+            # HERE?
             spills.add(active[-1][0])
             color.update({active[-1][0]: m})
             active.pop(-1)
             active.append((i, "spill"))
             active = sorted(active, key=lambda n: n[1][1][1])  # sorted by increasing end point
         else:
+            # HERE?
             spills.add(i[0])
             color.update({i[0]: m})
         print("SPILLS:", spills)
@@ -1888,7 +1894,7 @@ class LinScan(Tuples):
         return active
 
 
-    # new: adapted form poletto sarkar 1999 linearscan register allocation publication
+    # new: form poletto sarkar 1999 linearscan register allocation publication
     def expire_old(self,
             i: expr,
             active: [expr,location],
@@ -1896,15 +1902,17 @@ class LinScan(Tuples):
         ) -> [expr,location]:
         for j in active:
             if j[1][1][1] >= i[1][0]:  # endpoint inteval j >= start point inteval i
+                # HERE?
                 break
             else:
+                # HERE?
                 free_reg.append(j[0])
                 active.pop(active.index(j))
         print("ACTTIVE:", active)
         return active
 
 
-    # new: adapted form poletto sarkar 1999 linearscan register allocation publication
+    # new: form poletto sarkar 1999 linearscan register allocation publication
     def linscan_reg_alloc(self,
             live_interval : Dict[location, List[int]],
         ) -> [Dict[location,int], Set[location]]:
@@ -1919,8 +1927,10 @@ class LinScan(Tuples):
                 case _:
                     active = self.expire_old(i, active, free_reg)
                     if len(active) == len(registers_for_alloc):
+                        # HERE?
                         active = self.spill_interval(i, active, color, spills)
                     else:
+                        # HERE?
                         reg = free_reg.pop(0)
                         active.append((reg, i))
                         color.update({i[0]: register_color[reg.id]})
@@ -1929,7 +1939,7 @@ class LinScan(Tuples):
         return color, spills
 
 
-    # modification: from earlier class
+    # adapted: from earlier class
     def alloc_reg_blocks(self,
             blocks: List[stmt],
             live_interval: Dict[location,List[int]],
@@ -1961,7 +1971,7 @@ class LinScan(Tuples):
         return (new_blocks, used_callee, num_callee, stack_spills, root_spills)
 
 
-    # modification: from earlier class
+    # adapted: from earlier class
     def allocate_registers(self,
             x86p: X86Program,
             live_interval: Dict[location,List[int]],
@@ -1985,12 +1995,19 @@ class LinScan(Tuples):
     #                                                              #
     ################################################################
 
-    # modification: from earlier class
+    # adapted: from earlier class
     def assign_homes(self, x86p : X86Program) -> X86Program:
         match x86p:
             case X86Program(body):
+                r_start = time.time()
                 live_interval = self.uncover_live(x86p)
                 new_x86p = self.allocate_registers(x86p, live_interval)
+                r_stop = time.time()
+                r_runtime = (r_stop - r_start) / 100
+                print("RUNTIME", r_runtime)
+                f = open('linscan_timing.csv', 'a')
+                f.write(f'{r_runtime}\n')
+                f.close()
                 return new_x86p
 
             case _:

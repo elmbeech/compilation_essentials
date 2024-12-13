@@ -66,6 +66,8 @@ from interp_x86.eval_x86 import interp_x86
 from racket_interp_x86 import *
 from math import floor
 from priority_queue import PriorityQueue
+import sys
+import time
 import type_check_Lvar
 import type_check_Lif
 import type_check_Cif
@@ -76,6 +78,8 @@ import type_check_Ctup
 from utils import *
 from x86_ast import *
 
+# set recursion limit
+sys.setrecursionlimit(16384)
 
 # types
 
@@ -555,6 +559,8 @@ class RegisterAllocator(Var):
                 if u.id not in registers: # use match on u instead?
                     unavail_colors[u].add(c)
                     Q.increase_key(u)  # log(n)
+        print("\nCOLOR:", color)
+        print("\nSPILLS:", spills)
         return color, spills
 
     def identify_home(self, c: int, first_location: int) -> arg:
@@ -601,11 +607,20 @@ class RegisterAllocator(Var):
                 return new_p
 
     def assign_homes(self, pseudo_x86: X86Program) -> X86Program:
+        print("\nREGISTER COLOR:", register_color)
+        r_start = time.time()
         live_after = self.uncover_live(pseudo_x86)
         graph = self.build_interference(pseudo_x86, live_after)
+        new_x86p = self.allocate_registers(pseudo_x86, graph)
+        r_stop = time.time()
+        r_runtime = (r_stop - r_start) / 100
+        print("RUNTIME", r_runtime)
+        f = open('linscan_timing.csv', 'a')
+        f.write(f'{r_runtime}\n')
+        f.close()
         #trace(graph.show().source)
-        trace("")
-        return self.allocate_registers(pseudo_x86, graph)
+        return new_x86p
+
 
     ###########################################################################
     # Patch Instructions
