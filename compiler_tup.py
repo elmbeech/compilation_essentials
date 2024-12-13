@@ -561,6 +561,9 @@ class RegisterAllocator(Var):
                     Q.increase_key(u)  # log(n)
         print("\nCOLOR:", color)
         print("\nSPILLS:", spills)
+        f = open('linscan_spills.csv', 'a')
+        f.write(f'{len(spills)}\n')
+        f.close()
         return color, spills
 
     def identify_home(self, c: int, first_location: int) -> arg:

@@ -1806,7 +1806,7 @@ class LinScan(Tuples):
                         try:
                             live_interval[memory][1] = i
                         except KeyError:
-                            live_interval.update({memory : [i, None]})
+                            live_interval.update({memory : [i, i]})
         # print('LI:', live_interval.items())
         return live_interval
 
@@ -1859,7 +1859,7 @@ class LinScan(Tuples):
                 trace("uncover live:")
                 self.trace_live(x86p, live_before, live_after)
                 print("LIVE INTERVAL:", live_interval)
-                return live_interval   # live_after is no longer needed.
+                return live_interval  # live_after is no longer needed.
             case _:
                 raise Exception('error in uncover_live, unhandled: ' + repr(x86p))
 
@@ -1879,14 +1879,14 @@ class LinScan(Tuples):
         ) -> [expr,location]:
         m = max(register_color.values()) + len(spills) + 1  # spill color
         if active[-1][1][1][1] > i[1][1]:  # last active variable interval
-            # HERE?
+            # happens in tuple71a.py
             spills.add(active[-1][0])
             color.update({active[-1][0]: m})
             active.pop(-1)
-            active.append((i, "spill"))
+            active.append((i[0], i))
             active = sorted(active, key=lambda n: n[1][1][1])  # sorted by increasing end point
         else:
-            # HERE?
+            # happens in parallel_k0016.py
             spills.add(i[0])
             color.update({i[0]: m})
         print("SPILLS:", spills)
@@ -1902,10 +1902,10 @@ class LinScan(Tuples):
         ) -> [expr,location]:
         for j in active:
             if j[1][1][1] >= i[1][0]:  # endpoint inteval j >= start point inteval i
-                # HERE?
+                # happens in parallel parallel_k0004.py
                 break
             else:
-                # HERE?
+                # happens in parallel_k0004.py
                 free_reg.append(j[0])
                 active.pop(active.index(j))
         print("ACTTIVE:", active)
@@ -1925,17 +1925,26 @@ class LinScan(Tuples):
                 case Reg(idf):
                     color.update({i[0]: register_color[i[0].id]})
                 case _:
+                    #if self.is_root_type(self.var_types[i[0].id]):
+                        # spill tuple to the root stack (if there us a call to collect)
+                    #    m = max(register_color.values()) + len(spills) + 1  # spill color
+                    #    color.update({i[0]: m})
+                    #    spills.add(i[0])
+                    #else:
                     active = self.expire_old(i, active, free_reg)
                     if len(active) == len(registers_for_alloc):
-                        # HERE?
+                        # happens in parallel_k0016.py
                         active = self.spill_interval(i, active, color, spills)
                     else:
-                        # HERE?
+                        # happens in parallel_k0004.py
                         reg = free_reg.pop(0)
                         active.append((reg, i))
                         color.update({i[0]: register_color[reg.id]})
         print("COLOR:", color)
         print("SPILLS:", spills)
+        f = open('linscan_spills.csv', 'a')
+        f.write(f'{len(spills)}\n')
+        f.close()
         return color, spills
 
 
@@ -1945,7 +1954,7 @@ class LinScan(Tuples):
             live_interval: Dict[location,List[int]],
             var_types: Dict[str,type],
         ) -> X86Program:
-        print("BUE var_types:", var_types)
+        print("VARTYPES:", sorted(var_types))
         variables = set().union(*[self.collect_locals_instrs(ss) for (l, ss) in blocks.items()])
         self.var_types = var_types
         trace('var_types:')
@@ -1962,6 +1971,8 @@ class LinScan(Tuples):
                 root_spills = root_spills.union(set([s.id]))
             else:
                 stack_spills = stack_spills.union(set([s.id]))
+        print("ROOT SPILLS", root_spills)
+        print("STACK SPILLS", stack_spills)
         used_callee = self.used_callee_reg(variables, color)
         num_callee = len(used_callee)
         home = {x: self.identify_home(color[x], 8 + 8 * num_callee) for x in variables}
@@ -1994,6 +2005,20 @@ class LinScan(Tuples):
     # Asssign Homes (calls: Uncover live and Registrer Allocation) #
     #                                                              #
     ################################################################
+
+
+    def interfere_instr(self, i: instr, graph: UndirectedAdjList,
+                        live_after: Dict[instr, Set[location]]):
+        match i:
+            case Callq(func, n) if func == 'collect':
+                for v in live_after[i]:
+                    if not (v.id in registers) and self.is_root_type(self.var_types[v.id]):
+                        for u in callee_save_for_alloc:
+                            graph.add_edge(Reg(u), v)
+                super().interfere_instr(i, graph, live_after)
+            case _:
+                super().interfere_instr(i, graph, live_after)
+
 
     # adapted: from earlier class
     def assign_homes(self, x86p : X86Program) -> X86Program:
