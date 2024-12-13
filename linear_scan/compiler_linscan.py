@@ -1789,6 +1789,7 @@ class LinScan(Tuples):
             ls_block: List[str],
             blocks: Dict[str,List[instr]],
             live_after: Dict[instr,Set[location]],
+            var_types: Dict[str,type],
         ) -> Dict[location,List[int]]:
         live_interval = {}
         root_spills = set()
@@ -1804,8 +1805,12 @@ class LinScan(Tuples):
                     match instruct:
                         case Callq(func, n) if func == 'collect':
                             for memory in live_after[instruct]:
-                                if self.is_root_type(self.var_types[memory.id]):
-                                    root_spilled = root_spilled.union(live_after[instruct])
+                                match memory:
+                                    case Reg(idf):
+                                        pass
+                                    case _:
+                                        if self.is_root_type(var_types[memory.id]):
+                                            root_spills = root_spills.union(live_after[instruct])
                     i += 1
                     for memory in live_after[instruct]:
                         try:
@@ -1813,12 +1818,13 @@ class LinScan(Tuples):
                         except KeyError:
                             live_interval.update({memory : [i, i]})
         # print('LI:', live_interval.items())
-        return live_interval, root_spilled
+        return live_interval, root_spills
 
 
     # adapted: from earlier class
     def uncover_live_blocks(self,
             blocks: Dict[str,List[instr]],
+            var_types: Dict[str,type],
         ) -> [Dict[instr,Set[location]], Dict[instr,Set[location]], Dict[location,List[int]]]:
         # get control flow graph
         cfg = self.blocks_to_graph(blocks)
@@ -1844,7 +1850,7 @@ class LinScan(Tuples):
         #print("LA:", live_after.items())
 
         # get live interval data
-        live_interval, root_spills = self.uncover_live_interval(ls_block, blocks, live_after)
+        live_interval, root_spills = self.uncover_live_interval(ls_block, blocks, live_after, var_types)
 
         # output
         return live_before, live_after, live_interval, root_spills
@@ -1860,7 +1866,7 @@ class LinScan(Tuples):
         ) -> Dict[instr, Set[location]]:
         match x86p:
             case X86Program(blocks):
-                (live_before, live_after, live_interval, root_spills) = self.uncover_live_blocks(blocks)
+                (live_before, live_after, live_interval, root_spills) = self.uncover_live_blocks(blocks, x86p.var_types)
                 trace("uncover live:")
                 self.trace_live(x86p, live_before, live_after)
                 print("LIVE INTERVAL:", live_interval)
@@ -1880,21 +1886,21 @@ class LinScan(Tuples):
             i: expr,
             active: [expr,location],
             color: Dict[expr,int],
-            stack_spills: Set[locations],
+            stack_spills: Set[location],
             root_spills: Set[location],
         ) -> [expr,location]:
         m = max(register_color.values()) + len(stack_spills) + 1  # spill color
         if active[-1][1][1][1] > i[1][1]:  # last active variable interval
             # happens in tuple71a.py
-            if not(active[-1][0] in root_spilled):
+            if not(active[-1][0] in root_spills):
                 stack_spills.add(active[-1][0])
             color.update({active[-1][0]: m})
             active.pop(-1)
-            active.append((i[0], i))/
+            active.append((i[0], i))
             active = sorted(active, key=lambda n: n[1][1][1])  # sorted by increasing end point
         else:
             # happens in parallel_k0016.py
-            if not(i[0] in root_spilled):
+            if not(i[0] in root_spills):
                 stack_spills.add(i[0])
             color.update({i[0]: m})
         print("STACK SPILLS:", stack_spills)
@@ -1996,7 +2002,7 @@ class LinScan(Tuples):
     def allocate_registers(self,
             x86p: X86Program,
             live_interval: Dict[location,List[int]],
-            root_spills: Set[locations],
+            root_spills: Set[location],
         ) -> X86Program:
         match x86p:
             case X86Program(blocks):
@@ -2016,20 +2022,6 @@ class LinScan(Tuples):
     # Asssign Homes (calls: Uncover live and Registrer Allocation) #
     #                                                              #
     ################################################################
-
-    # BUE OUT!
-    def interfere_instr(self, i: instr, graph: UndirectedAdjList,
-                        live_after: Dict[instr, Set[location]]):
-        match i:
-            case Callq(func, n) if func == 'collect':
-                for v in live_after[i]:
-                    if not (v.id in registers) and self.is_root_type(self.var_types[v.id]):
-                        for u in callee_save_for_alloc:
-                            graph.add_edge(Reg(u), v)
-                super().interfere_instr(i, graph, live_after)
-            case _:
-                super().interfere_instr(i, graph, live_after)
-
 
     # adapted: from earlier class
     def assign_homes(self, x86p : X86Program) -> X86Program:
