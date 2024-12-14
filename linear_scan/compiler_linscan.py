@@ -1806,11 +1806,9 @@ class LinScan(Tuples):
                         case Callq(func, n) if func == 'collect':
                             for memory in live_after[instruct]:
                                 match memory:
-                                    case Reg(idf):
-                                        pass
-                                    case _:
+                                    case Variable(idf):
                                         if self.is_root_type(var_types[memory.id]):
-                                            root_spills = root_spills.union(live_after[instruct])
+                                            root_spills.add(memory)
                     i += 1
                     for memory in live_after[instruct]:
                         try:
@@ -1888,8 +1886,9 @@ class LinScan(Tuples):
             color: Dict[expr,int],
             stack_spills: Set[location],
             root_spills: Set[location],
+            m: int,
         ) -> [expr,location]:
-        m = max(register_color.values()) + len(stack_spills) + 1  # spill color
+        m += 1
         if active[-1][1][1][1] > i[1][1]:  # last active variable interval
             # happens in tuple71a.py
             if not(active[-1][0] in root_spills):
@@ -1905,7 +1904,7 @@ class LinScan(Tuples):
             color.update({i[0]: m})
         print("STACK SPILLS:", stack_spills)
         print("ACTIVE:", active)
-        return active
+        return active, m
 
 
     # new: form poletto sarkar 1999 linearscan register allocation publication
@@ -1935,21 +1934,16 @@ class LinScan(Tuples):
         stack_spills = set()
         active = []
         free_reg = [Reg(r) for r in registers_for_alloc]
+        m = max(register_color.values())
         for i in sorted(live_interval.items(), key=lambda n: n[1][0]):
             match i[0]:
                 case Reg(idf):
                     color.update({i[0]: register_color[i[0].id]})
                 case _:
-                    #if self.is_root_type(self.var_types[i[0].id]):
-                        # spill tuple to the root stack (if there us a call to collect)
-                    #    m = max(register_color.values()) + len(spills) + 1  # spill color
-                    #    color.update({i[0]: m})
-                    #    spills.add(i[0])
-                    #else:
                     active = self.expire_old(i, active, free_reg)
                     if len(active) == len(registers_for_alloc):
                         # happens in parallel_k0016.py
-                        active = self.spill_interval(i, active, color, stack_spills, root_spills)
+                        active, m = self.spill_interval(i, active, color, stack_spills, root_spills, m)
                     else:
                         # happens in parallel_k0004.py
                         reg = free_reg.pop(0)
@@ -1971,7 +1965,7 @@ class LinScan(Tuples):
             var_types: Dict[str,type],
         ) -> X86Program:
         print("VARTYPES:", sorted(var_types))
-        variables = set().union(*[self.collect_locals_instrs(ss) for (l, ss) in blocks.items()])
+        instructions = set().union(*[self.collect_locals_instrs(ss) for (l, ss) in blocks.items()])  # instructions
         self.var_types = var_types
         trace('var_types:')
         trace(var_types)
@@ -1980,18 +1974,11 @@ class LinScan(Tuples):
         # trace(stack_spills)
         # trace('color:')
         # trace(color)
-        #root_spills = set()
-        #stack_spills = set()
-        #for s in spills:
-        #    if self.is_root_type(var_types[s.id]):
-        #        root_spills = root_spills.union(set([s.id]))
-        #    else:
-        #        stack_spills = stack_spills.union(set([s.id]))
         print("ROOT SPILLS", root_spills)
         print("STACK SPILLS", stack_spills)
-        used_callee = self.used_callee_reg(variables, color)
+        used_callee = self.used_callee_reg(instructions, color)
         num_callee = len(used_callee)
-        home = {x: self.identify_home(color[x], 8 + 8 * num_callee) for x in variables}
+        home = {x: self.identify_home(color[x], 8 + 8 * num_callee) for x in instructions}
         trace('home:')
         trace(home)
         new_blocks = {l: self.assign_homes_instrs(ss, home) for (l, ss) in blocks.items()}
