@@ -1895,7 +1895,9 @@ class LinScan(Tuples):
                 stack_spills.add(active[-1][0])
             color.update({active[-1][0]: m})
             active.pop(-1)
+            print("I[0,i]: ",(i))
             active.append((i[0], i))
+            color.update({i[0]:m})
             active = sorted(active, key=lambda n: n[1][1][1])  # sorted by increasing end point
         else:
             # happens in parallel_k0016.py
@@ -1966,6 +1968,7 @@ class LinScan(Tuples):
         ) -> X86Program:
         print("VARTYPES:", sorted(var_types))
         instructions = set().union(*[self.collect_locals_instrs(ss) for (l, ss) in blocks.items()])  # instructions
+        print("INSTRS: ",instructions)
         self.var_types = var_types
         trace('var_types:')
         trace(var_types)
@@ -1976,6 +1979,7 @@ class LinScan(Tuples):
         # trace(color)
         print("ROOT SPILLS", root_spills)
         print("STACK SPILLS", stack_spills)
+        print("COLORCOLORCOLOR: ",color)
         used_callee = self.used_callee_reg(instructions, color)
         num_callee = len(used_callee)
         home = {x: self.identify_home(color[x], 8 + 8 * num_callee) for x in instructions}
@@ -2113,5 +2117,6 @@ interp_dict = {
     #'assign_homes': racket_interp_x86,
     #'patch_instructions': racket_interp_x86,
 }
+
 
 
